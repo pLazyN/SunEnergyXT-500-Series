@@ -36,7 +36,7 @@ SunEnergyXT 500 Series ist eine benutzerdefinierte Integration für Home Assista
 
 ### Manuelle Installation
 
-1. Laden Sie das neueste [Release-Paket](https://github.com/GLORYFeonix/SunEnergyXT_500_Series/releases) herunter
+1. Laden Sie das neueste [Release-Paket](https://github.com/SunEnergyXT/SunEnergyXT-500-Series/releases) herunter
 2. Entpacken Sie es in das Verzeichnis `config/custom_components/`
 3. Stellen Sie sicher, dass die Verzeichnisstruktur `config/custom_components/sunenergyxt/` ist
 4. Starten Sie Home Assistant neu

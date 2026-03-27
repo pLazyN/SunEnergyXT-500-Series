@@ -27,7 +27,7 @@ SunEnergyXT 500 Series ist eine benutzerdefinierte Integration für Home Assista
 
 1. Öffnen Sie HACS in Home Assistant
 2. Klicken Sie auf die drei Punkte in der oberen rechten Ecke und wählen Sie "Custom repositories"
-3. Geben Sie die Repository-Adresse ein: https://github.com/GLORYFeonix/SunEnergyXT_500_Series
+3. Geben Sie die Repository-Adresse ein: https://github.com/SunEnergyXT/SunEnergyXT-500-Series
 4. Wählen Sie "Integration" als Kategorie
 5. Klicken Sie auf "Add"
 6. Suchen Sie nach "SunEnergyXT 500 Series"

@@ -17,6 +17,7 @@ Dieses Dokument richtet sich an Integrationen im lokalen Netzwerk und beschreibt
 - `PD / GD1 / GD2 / LD` sind rohe Tagesenergiezaehler in `Wh`, nicht in `kWh`.
 - `MM` ist der Schalter fuer den lokalen Eigenverbrauchsmodus, und `MD` ist die Zaehlerverbindungs-Zeichenkette, die dieser Modus verwendet.
 - `TZ` ist ein POSIX-Zeitzonenfeld und kein Landes- oder Regionsname. Fuer Deutschland sollte eine POSIX-Zeitzone mit Sommerzeitregel verwendet werden, zum Beispiel `CET-1CEST,M3.5.0,M10.5.0/3`.
+- `MD` und `TZ` wirken direkt nach dem Schreiben, aber das Geraet gibt den exakt geschriebenen Wert moeglicherweise nicht zurueck.
 - `UP` ist die PV-Bypass-Leistung im UPS-Modus nach voller Ladung. Der Standardwert haengt vom Modell ab: `800` fuer 500 Standard und `2400` fuer 500 Pro.
 
 ## 2. Geltungsbereich und allgemeine Regeln
@@ -89,7 +90,6 @@ Beispiel fuer die stabile Antwortstruktur:
       "MS": 1,
       "IP": "192.168.1.102",
       "COM": 80,
-      "TZ": "CET-1CEST,M3.5.0,M10.5.0/3",
       "ES": "1.1.3",
       "AS": "1.0.6",
       "DS": "1.0.5",
@@ -125,6 +125,7 @@ Schreibregeln:
 - Senden Sie nur die Felder, die Sie aendern moechten. Partielle Schreibvorgaenge werden empfohlen.
 - Verlassen Sie sich nicht auf ein festes Antwortformat im Body. Verwenden Sie `HTTP 2xx + /read`-Ruecklesen als Erfolgskriterium.
 - Wenn ein Feld von der aktuellen Firmware nicht unterstuetzt wird, kann das Geraet es stillschweigend ignorieren und den bisherigen Wert beibehalten.
+- `MD` und `TZ` wirken direkt nach einem erfolgreichen Schreibvorgang, aber das Geraet gibt moeglicherweise nicht denselben Wert zurueck. Bestaetigen Sie diese Felder ueber die Wirkung, nicht ueber ein direktes Echo.
 - Fuer risikoreiche Aktionen wie `RT` sollte ein Senden-und-Bestaetigen-Ablauf verwendet werden, nicht Fire-and-forget.
 
 ## 4. Stabil schreibbare Felder und Ausfuellregeln
@@ -138,9 +139,9 @@ Schreibregeln:
 | `SO` | `integer` | Ja | Minimaler Entlade-SOC im Inselbetrieb. | Empfohlene Werte: `1`, `10` oder `20`. |
 | `LM` | `integer` | Ja | Schalter fuer den lokalen Modus. `0 = aus`, `1 = ein`. | Sobald der lokale Modus aktiviert ist, ist zu erwarten, dass die meisten Cloud-Fernsteuerungen blockiert bleiben, bis der lokale Modus wieder deaktiviert wird. |
 | `MM` | `integer` | Ja | Schalter fuer den lokalen Eigenverbrauchsmodus. `0 = aus`, `1 = ein`. | Am sichersten ist es, zuerst ein gueltiges `MD` vorzubereiten oder `MM = 1` zusammen mit `MD` in derselben Anfrage zu senden. Den finalen Zaehlerstatus ueber `MS` bestaetigen. |
-| `MD` | `string` | Ja | JSON-Zeichenkette fuer die lokale Zaehlerverbindung. | `MD` muss als JSON-kodierte Zeichenkette gesendet werden, nicht als verschachteltes JSON-Objekt. Das genaue Format ist in Abschnitt 5 beschrieben. |
+| `MD` | `string` | Wirkt direkt | JSON-Zeichenkette fuer die lokale Zaehlerverbindung. | Fuellen Sie `MD` mit dem finalen geraeteseitigen JSON-Zeichenketteninhalt aus Abschnitt 5. Die Einstellung wirkt direkt, aber das Geraet gibt den geschriebenen `MD`-Wert moeglicherweise nicht zurueck. Bestaetigen Sie das Ergebnis ueber `MS` und die echten Zaehlerdaten. |
 | `RT` | `integer` | Trigger | Neustart-Trigger fuer das Geraet. | Nur `1` schreiben. Nach dem Neustart erneut `/read` lesen, sobald das Geraet wieder erreichbar ist. |
-| `TZ` | `string` | Ja | POSIX-Zeitzonenfeld. | Es muss eine POSIX-Zeitzonen-Zeichenkette sein, kein Landes- oder Regionsname. Deutschland sollte `CET-1CEST,M3.5.0,M10.5.0/3` verwenden, China kann `CST-8` verwenden. Schreiben Sie nicht `Europe/Berlin`, `Europe/Paris`, `PRC`, `UTC+1`, `UTC+2`, `CET` oder `CEST`. |
+| `TZ` | `string` | Wirkt direkt | POSIX-Zeitzonenfeld. | Es muss eine POSIX-Zeitzonen-Zeichenkette sein, kein Landes- oder Regionsname. Deutschland sollte `CET-1CEST,M3.5.0,M10.5.0/3` verwenden, China kann `CST-8` verwenden. Schreiben Sie nicht `Europe/Berlin`, `Europe/Paris`, `PRC`, `UTC+1`, `UTC+2`, `CET` oder `CEST`. Die Einstellung wirkt direkt, aber das Geraet gibt den geschriebenen `TZ`-Wert moeglicherweise nicht zurueck. |
 | `NT` | `integer` | Nicht garantiert | Landes-/Sicherheitsprofil-ID. | Beispiel: Deutschland verwendet haeufig `60`. Dieses Feld nur schreiben, wenn die Zuordnung Land-zu-Profil eindeutig bekannt ist. |
 | `UO` | `integer` | Ja | Schalter fuer den UPS-Modus. `0 = aus`, `1 = ein`. | Wenn `UO = 1`, koennen viele nicht UPS-bezogene Einstellungen wirkungslos bleiben, bis der UPS-Modus wieder deaktiviert wird. |
 | `UP` | `integer` | Ja | PV-Bypass-Leistung im UPS-Modus nach voller Ladung. | Einheit: `W`. Standardwert: `800` fuer 500 Standard und `2400` fuer 500 Pro. Im Normalfall sollte der jeweilige Nennwert des Modells gesetzt werden. |
@@ -166,35 +167,17 @@ Die folgenden Felder koennen auf einigen Geraeten oder Firmware-Versionen auftre
 
 Ausfuellregeln:
 
-- In `/write` muss `MD` als Zeichenkette gesendet werden, nicht als verschachteltes JSON-Objekt.
+- In den Beispielen unten wird `MD` als finaler geraeteseitiger JSON-Zeichenketteninhalt ohne zusaetzliche Escape-Slashes gezeigt.
+- Wenn Ihr HTTP-Client einen JSON-Request-Body serialisiert, wird das aeussere Escaping der Zeichenkette meist automatisch uebernommen.
 - Bei `mdns`-Zaehlern muss der Host-Teil in `dat_url` auf `0.0.0.0` bleiben. Er darf nicht manuell durch die echte LAN-IP ersetzt werden.
-- Nach der Zeichenketten-Serialisierung kann `=` als `\u003d` erscheinen. Das ist gleichwertig und kann unveraendert gesendet werden.
+- In einigen Clients kann `=` waehrend der Serialisierung als `\u003d` erscheinen. Das ist gleichwertig und kann unveraendert gesendet werden.
 
 ### 5.1 Endgueltiges Format des `MD`-Felds
 
-Beispiel fuer den `MD`-Inhalt, der final im Geraet gespeichert wird:
+Fuellen Sie `MD` im folgenden finalen geraeteseitigen Format aus:
 
-```json
-{
-  "mode": "mdns",
-  "mdns": {
-    "sn": "8c4f00c31844",
-    "dat_url": "http://0.0.0.0/rpc/EM.GetStatus?id=0"
-  },
-  "dat_str": {
-    "pwr": "total_act_power"
-  }
-}
-```
-
-Innerhalb einer `/write`-Anfrage muss dasselbe `MD` als Zeichenkette gesendet werden:
-
-```json
-{
-  "state": {
-    "MD": "{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"8c4f00c31844\",\"dat_url\":\"http://0.0.0.0/rpc/EM.GetStatus?id\\u003d0\"},\"dat_str\":{\"pwr\":\"total_act_power\"}}"
-  }
-}
+```text
+{"mode":"mdns","mdns":{"sn":"8c4f00c31844","dat_url":"http://0.0.0.0/rpc/EM.GetStatus?id\u003d0"},"dat_str":{"pwr":"total_act_power"}}
 ```
 
 Bedeutung der Felder:
@@ -215,77 +198,33 @@ Das Geraet unterstuetzt aktuell die folgenden vier Zaehlerkategorien fuer den lo
 | --- | --- | --- | --- | --- |
 | `ECOTRACKER` | `direct` | `direct.dat_url = http://{meter_ip}/v1/json` | `power` | Die aktuelle LAN-IP des Zaehlergeraets ist erforderlich. Es darf kein Platzhalter verwendet werden |
 | `SHELLY_3EM_METER` | `mdns` | `mdns.sn = Zaehler-SN`; `mdns.dat_url = http://0.0.0.0/status` | `total_power` | Die Zaehler-SN direkt verwenden |
-| `SHELLY_PRO3EM_METER` | `mdns` | `mdns.sn = Zaehler-SN`; `mdns.dat_url = http://0.0.0.0/rpc/EM.GetStatus?id=0` | `total_act_power` | Die Zaehler-SN direkt verwenden |
+| `SHELLY_PRO3EM_METER` | `mdns` | `mdns.sn = Zaehler-SN`; `mdns.dat_url = http://0.0.0.0/rpc/EM.GetStatus?id\u003d0` | `total_act_power` | Die Zaehler-SN direkt verwenden |
 | `TASMOTA` | `mdns` | `mdns.sn = SN-Praefix ohne die letzten 4 Zeichen`; `mdns.dat_url = http://0.0.0.0/cm?cmnd=Status%208` | Abhaengig vom Subtyp | `dat_str.pwr` muss exakt zum aktuellen Subtyp passen. Die vollstaendige Liste steht in Abschnitt 5.4 |
 
 ### 5.3 `MD`-Beispiele nach Zaehlerkategorie
 
 #### 5.3.1 EcoTracker
 
-Lesbare Struktur:
+Fuellen Sie diesen `MD`-Wert aus:
 
-```json
-{
-  "mode": "direct",
-  "direct": {
-    "dat_url": "http://192.168.1.50/v1/json"
-  },
-  "dat_str": {
-    "pwr": "power"
-  }
-}
-```
-
-Tatsaechlicher Zeichenkettenwert fuer `MD`:
-
-```json
-"{\"mode\":\"direct\",\"direct\":{\"dat_url\":\"http://192.168.1.50/v1/json\"},\"dat_str\":{\"pwr\":\"power\"}}"
+```text
+{"mode":"direct","direct":{"dat_url":"http://192.168.1.50/v1/json"},"dat_str":{"pwr":"power"}}
 ```
 
 #### 5.3.2 Shelly 3EM
 
-Lesbare Struktur:
+Fuellen Sie diesen `MD`-Wert aus:
 
-```json
-{
-  "mode": "mdns",
-  "mdns": {
-    "sn": "B929CC",
-    "dat_url": "http://0.0.0.0/status"
-  },
-  "dat_str": {
-    "pwr": "total_power"
-  }
-}
-```
-
-Tatsaechlicher Zeichenkettenwert fuer `MD`:
-
-```json
-"{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"B929CC\",\"dat_url\":\"http://0.0.0.0/status\"},\"dat_str\":{\"pwr\":\"total_power\"}}"
+```text
+{"mode":"mdns","mdns":{"sn":"B929CC","dat_url":"http://0.0.0.0/status"},"dat_str":{"pwr":"total_power"}}
 ```
 
 #### 5.3.3 Shelly Pro 3EM
 
-Lesbare Struktur:
+Fuellen Sie diesen `MD`-Wert aus:
 
-```json
-{
-  "mode": "mdns",
-  "mdns": {
-    "sn": "8c4f00c31844",
-    "dat_url": "http://0.0.0.0/rpc/EM.GetStatus?id=0"
-  },
-  "dat_str": {
-    "pwr": "total_act_power"
-  }
-}
-```
-
-Tatsaechlicher Zeichenkettenwert fuer `MD`:
-
-```json
-"{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"8c4f00c31844\",\"dat_url\":\"http://0.0.0.0/rpc/EM.GetStatus?id\\u003d0\"},\"dat_str\":{\"pwr\":\"total_act_power\"}}"
+```text
+{"mode":"mdns","mdns":{"sn":"8c4f00c31844","dat_url":"http://0.0.0.0/rpc/EM.GetStatus?id\u003d0"},"dat_str":{"pwr":"total_act_power"}}
 ```
 
 #### 5.3.4 Tasmota
@@ -297,25 +236,10 @@ Hinweise:
 - `mdns.sn` ist nicht die vollstaendige Geraete-SN. Verwendet wird das Praefix ohne die letzten 4 Zeichen. Beispiel: `tasmota-c28338-0824` wird zu `tasmota-c28338`
 - `dat_str.pwr` muss exakt zum aktuellen Zaehler-Subtyp passen
 
-Lesbare Struktur:
+Fuellen Sie diesen `MD`-Wert aus:
 
-```json
-{
-  "mode": "mdns",
-  "mdns": {
-    "sn": "tasmota-c28338",
-    "dat_url": "http://0.0.0.0/cm?cmnd=Status%208"
-  },
-  "dat_str": {
-    "pwr": "Power"
-  }
-}
-```
-
-Tatsaechlicher Zeichenkettenwert fuer `MD`:
-
-```json
-"{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"tasmota-c28338\",\"dat_url\":\"http://0.0.0.0/cm?cmnd=Status%208\"},\"dat_str\":{\"pwr\":\"Power\"}}"
+```text
+{"mode":"mdns","mdns":{"sn":"tasmota-c28338","dat_url":"http://0.0.0.0/cm?cmnd=Status%208"},"dat_str":{"pwr":"Power"}}
 ```
 
 ### 5.4 Vollstaendige BitShake-/Tasmota-Zuordnung fuer `dat_str.pwr`
@@ -414,11 +338,11 @@ Wenn der aktuelle Zaehler-Subtyp nicht in der obigen Liste aufgefuehrt ist, soll
 | `SI / SA / SO` | `integer` | SOC-Grenzwerte | `SI1 / SA1` sind reservierte Felder und sollten nicht standardmaessig angenommen werden |
 | `LM` | `integer` | Status des lokalen Modus | `0 = aus`, `1 = ein` |
 | `MM` | `integer` | Status des lokalen Eigenverbrauchsmodus | `0 = aus`, `1 = ein` |
-| `MD` | `string` | Gespeicherte Zaehlerverbindungs-Zeichenkette | Dies ist die echte JSON-Zeichenkette und kein Anzeigetext |
+| `MD` | `string` | Laufzeitwert der Zaehlerverbindung, wenn vorhanden | Nicht als garantiertes Echo des zuletzt geschriebenen `MD` verwenden |
 | `MS` | `integer` | Zaehlerstatus | Aktuell bekannte Werte: `0 = kein Zaehler gebunden`, `1 = online`, `2 = offline`, `3 = IP-Anfrage laeuft` |
 | `IP` | `string` | IP-Adresse des lokalen Modus | Vom Geraet gemeldet |
 | `COM` | `integer` | Port des lokalen Modus | Vom Geraet gemeldet |
-| `TZ` | `string` | Aktueller Zeitzonenwert | Dieselbe Semantik wie beim Schreibvertrag |
+| `TZ` | `string` | Laufzeitwert der Zeitzone, wenn vorhanden | Nicht als garantiertes Echo des zuletzt geschriebenen `TZ` verwenden |
 | `ES` | `string` | Wi-Fi-/Modul-Firmware-Version | Stabiles Versionsfeld |
 | `AS` | `string` | AC-Firmware-Version | Stabiles Versionsfeld |
 | `DS` | `string` | DC-Firmware-Version | Stabiles Versionsfeld |
@@ -477,19 +401,23 @@ Content-Type: application/json
 }
 ```
 
+Die Einstellung wirkt direkt, aber das Geraet gibt moeglicherweise nicht denselben `TZ`-Wert zurueck.
+
 ### 7.5 Lokalen Eigenverbrauchsmodus mit Shelly Pro 3EM aktivieren
 
 ```http
 POST http://192.168.1.102/write
 Content-Type: application/json
-
-{
-  "state": {
-    "MM": 1,
-    "MD": "{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"8c4f00c31844\",\"dat_url\":\"http://0.0.0.0/rpc/EM.GetStatus?id\\u003d0\"},\"dat_str\":{\"pwr\":\"total_act_power\"}}"
-  }
-}
 ```
+
+Schreiben Sie die folgenden Werte unter `state`:
+
+| Feld | Wert |
+| --- | --- |
+| `MM` | `1` |
+| `MD` | `{"mode":"mdns","mdns":{"sn":"8c4f00c31844","dat_url":"http://0.0.0.0/rpc/EM.GetStatus?id\u003d0"},"dat_str":{"pwr":"total_act_power"}}` |
+
+`MD` wirkt direkt, aber das Geraet gibt moeglicherweise nicht denselben Wert zurueck. Bestaetigen Sie den Erfolg ueber `MS` und die echten Zaehlerdaten.
 
 ### 7.6 Geraet neu starten
 
@@ -507,6 +435,7 @@ Content-Type: application/json
 ## 8. Integrationshinweise
 
 - Verwenden Sie nach jedem Schreibvorgang immer `/read` als massgebliche Quelle.
+- Bestaetigen Sie `MD` und `TZ` ueber ihre Wirkung. Verlassen Sie sich bei diesen Feldern nicht auf ein garantiertes direktes Echo.
 - Fuer normales Monitoring ist ein Polling-Intervall von `2s ~ 5s` in der Regel angemessen. Fuer die kurzzeitige Schreibbestaetigung koennen temporaer `1s ~ 2s` verwendet werden.
 - Vermeiden Sie es, nicht zusammengehoerige Aktionen in derselben `/write`-Anfrage zu mischen, insbesondere `RT` zusammen mit Konfigurationsaenderungen.
 - Wenn mehrere Firmware-Zweige unterstuetzt werden muessen, sollte die Integration nur auf den in diesem Dokument definierten stabilen Kernfeldern aufbauen. Gehen Sie nicht davon aus, dass undokumentierte Felder immer vorhanden sind.

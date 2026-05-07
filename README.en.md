@@ -157,8 +157,8 @@ Notes:
 
 | Entity ID | Name | Description |
 |-----------|------|-------------|
-| `MD` | Local Meter Connection Settings | Local meter connection JSON string for Local Self-Consumption Mode. Fill in the final string format accepted by the device. See [API.md](API.md) for examples |
-| `TZ` | System Time Zone | POSIX timezone string. For example, China can use `CST-8`; Germany with DST can use `CET-1CEST,M3.5.0,M10.5.0/3` |
+| `MD` | Local Meter Connection Settings | Local meter connection JSON string for Local Self-Consumption Mode. Fill in the exact final device-side value shown in [API.md](API.md). It takes effect directly, but should not be used as a guaranteed readback field |
+| `TZ` | System Time Zone | POSIX timezone string. For example, China can use `CST-8`; Germany with DST can use `CET-1CEST,M3.5.0,M10.5.0/3`. It takes effect directly, but should not be used as a guaranteed readback field |
 
 ### Button
 
@@ -183,16 +183,17 @@ Notes:
 
 ### Local Self-Consumption Mode Does Not Work
 
-- Make sure `MD` is filled in as a JSON string
+- Make sure `MD` follows the exact meter-type example shown in [API.md](API.md)
 - Make sure `MM` is enabled
-- Check whether `MS` reports an online meter status
-- See [API.md](API.md) for `MD` examples for different meter types
+- Check whether `MS` reports an online meter status and whether live meter data is updating
+- Do not rely on `MD` itself as a guaranteed echo after writing
 
 ### Timezone Setting Is Incorrect
 
 - `TZ` must be a POSIX timezone string
 - Do not enter `Europe/Berlin`, `UTC+1`, `CET`, or `CEST` as the final `TZ` value
 - For Germany, use a DST-aware POSIX string such as `CET-1CEST,M3.5.0,M10.5.0/3`
+- After changing `TZ`, confirm the resulting timezone behavior instead of expecting the exact written value to be echoed back
 
 ## Contribution
 

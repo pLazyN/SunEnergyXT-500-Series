@@ -157,8 +157,8 @@ Hinweise:
 
 | Entitaets-ID | Name | Beschreibung |
 |--------------|------|--------------|
-| `MD` | Lokale Smart-Meter-Verbindung | JSON-Zeichenkette fuer die lokale Smart-Meter-Verbindung im Modus "Lokaler Eigenverbrauch". Es muss das endgueltige String-Format verwendet werden, das das Geraet erwartet. Beispiele finden Sie in [API.md](API.md) |
-| `TZ` | Systemzeitzone | POSIX-Zeitzonenstring. Fuer China kann z. B. `CST-8` verwendet werden; fuer Deutschland mit Sommerzeit z. B. `CET-1CEST,M3.5.0,M10.5.0/3` |
+| `MD` | Lokale Smart-Meter-Verbindung | JSON-Zeichenkette fuer die lokale Smart-Meter-Verbindung im Modus "Lokaler Eigenverbrauch". Es muss exakt der finale geraeteseitige Wert aus [API.md](API.md) verwendet werden. Die Einstellung wirkt direkt, ist aber kein garantiertes Ruecklesefeld |
+| `TZ` | Systemzeitzone | POSIX-Zeitzonenstring. Fuer China kann z. B. `CST-8` verwendet werden; fuer Deutschland mit Sommerzeit z. B. `CET-1CEST,M3.5.0,M10.5.0/3`. Die Einstellung wirkt direkt, ist aber kein garantiertes Ruecklesefeld |
 
 ### Button
 
@@ -183,16 +183,17 @@ Hinweise:
 
 ### Lokaler Eigenverbrauch funktioniert nicht
 
-- Stellen Sie sicher, dass `MD` als JSON-Zeichenkette eingetragen ist
+- Stellen Sie sicher, dass `MD` exakt dem Zaehlerbeispiel in [API.md](API.md) entspricht
 - Stellen Sie sicher, dass `MM` aktiviert ist
-- Pruefen Sie, ob `MS` einen online gemeldeten Zaehler zeigt
-- Beispiele fuer `MD` mit verschiedenen Zaehlerarten finden Sie in [API.md](API.md)
+- Pruefen Sie, ob `MS` einen online gemeldeten Zaehler zeigt und ob echte Zaehlerdaten aktualisiert werden
+- Verlassen Sie sich nach dem Schreiben nicht auf `MD` als garantiertes Echo
 
 ### Zeitzone ist falsch eingestellt
 
 - `TZ` muss als POSIX-Zeitzonenstring gesetzt werden
 - Verwenden Sie nicht `Europe/Berlin`, `UTC+1`, `CET` oder `CEST` als finalen `TZ`-Wert
 - Fuer Deutschland sollte ein POSIX-String mit Sommerzeitregel verwendet werden, z. B. `CET-1CEST,M3.5.0,M10.5.0/3`
+- Bestaetigen Sie nach dem Schreiben die resultierende Zeitzonenwirkung, statt ein exaktes Echo des geschriebenen `TZ`-Werts zu erwarten
 
 ## Beitrag
 

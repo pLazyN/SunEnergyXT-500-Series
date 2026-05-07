@@ -17,6 +17,7 @@ This document is for LAN-side integrations and describes the currently supported
 - `PD / GD1 / GD2 / LD` are raw daily energy counters in `Wh`, not `kWh`.
 - `MM` is the Local Self-Consumption Mode switch, and `MD` is the meter connection string used by that mode.
 - `TZ` is a POSIX timezone field, not a country or region name. Germany should use a DST-aware POSIX timezone string such as `CET-1CEST,M3.5.0,M10.5.0/3`.
+- `MD` and `TZ` take effect immediately after a write, but the device may not echo the exact written value back.
 - `UP` is the UPS full-charge PV bypass power setting. Its default value depends on the model: `800` for 500 Standard and `2400` for 500 Pro.
 
 ## 2. Scope and General Contract
@@ -89,7 +90,6 @@ Stable response shape example:
       "MS": 1,
       "IP": "192.168.1.102",
       "COM": 80,
-      "TZ": "CET-1CEST,M3.5.0,M10.5.0/3",
       "ES": "1.1.3",
       "AS": "1.0.6",
       "DS": "1.0.5",
@@ -125,6 +125,7 @@ Write contract notes:
 - Only send the fields you want to change. Partial writes are recommended.
 - Do not rely on a fixed response body format. Use `HTTP 2xx + /read echo` as the success rule.
 - If a field is unsupported by the current firmware, the device may silently ignore it and keep the previous value.
+- `MD` and `TZ` take effect immediately after a successful write, but the device may not echo the same value back. Confirm them by the resulting effect, not by direct field echo.
 - For high-risk actions such as `RT`, use a fire-and-confirm flow rather than fire-and-forget.
 
 ## 4. Stable Writable Fields and Fill Rules
@@ -138,9 +139,9 @@ Write contract notes:
 | `SO` | `integer` | Yes | Off-grid minimum discharge SOC. | Recommended values: `1`, `10`, or `20`. |
 | `LM` | `integer` | Yes | Local mode switch. `0 = off`, `1 = on`. | Once local mode is enabled, most cloud-side remote control is expected to be restricted until local mode is turned off. |
 | `MM` | `integer` | Yes | Local Self-Consumption Mode switch. `0 = off`, `1 = on`. | The safest pattern is to prepare a valid `MD` first, or submit `MM = 1` together with `MD` in the same request. Confirm final meter status via `MS`. |
-| `MD` | `string` | Yes | Meter local connection JSON string. | `MD` must be written as a JSON-encoded string, not as a nested JSON object. See Section 5 for the exact format. |
+| `MD` | `string` | Effect only | Meter local connection JSON string. | Fill `MD` with the final device-side JSON string content shown in Section 5. The setting takes effect immediately, but the device may not echo the written `MD` value back. Confirm the result via `MS` and actual meter data. |
 | `RT` | `integer` | Trigger | Device restart trigger. | Write `1` only. Read `/read` again after the device comes back online. |
-| `TZ` | `string` | Yes | POSIX timezone field. | It must be a POSIX timezone string, not a country or region name. Germany should use `CET-1CEST,M3.5.0,M10.5.0/3`; China can use `CST-8`. Do not write `Europe/Berlin`, `Europe/Paris`, `PRC`, `UTC+1`, `UTC+2`, `CET`, or `CEST`. |
+| `TZ` | `string` | Effect only | POSIX timezone field. | It must be a POSIX timezone string, not a country or region name. Germany should use `CET-1CEST,M3.5.0,M10.5.0/3`; China can use `CST-8`. Do not write `Europe/Berlin`, `Europe/Paris`, `PRC`, `UTC+1`, `UTC+2`, `CET`, or `CEST`. The setting takes effect immediately, but the device may not echo the written `TZ` value back. |
 | `NT` | `integer` | Not guaranteed | Nation / safety profile identifier. | Example: Germany commonly uses `60`. Only write this field when the country-to-profile mapping is clear. |
 | `UO` | `integer` | Yes | UPS mode switch. `0 = off`, `1 = on`. | When `UO = 1`, many non-UPS settings may no longer take effect until UPS mode is disabled. |
 | `UP` | `integer` | Yes | UPS full-charge PV bypass power. | Unit: `W`. Default value: `800` for 500 Standard and `2400` for 500 Pro. In normal use, fill it with the model rated value. |
@@ -166,35 +167,17 @@ The following fields may appear on some devices or firmware versions, but they a
 
 Fill rules:
 
-- In `/write`, `MD` must be sent as a string, not as a nested JSON object.
+- In the examples below, `MD` is shown as the final device-side JSON string content, without extra escape slashes.
+- When your HTTP client serializes a JSON request body, the outer string escaping is usually handled automatically.
 - For `mdns` meters, the host part inside `dat_url` must remain `0.0.0.0`. Do not replace it with the real LAN IP manually.
-- After string serialization, `=` may appear as `\u003d`. This is equivalent and can be sent as-is.
+- In some clients, `=` may appear as `\u003d` during serialization. This is equivalent and can be sent as-is.
 
 ### 5.1 Final `MD` Field Shape
 
-Example of the `MD` content finally stored by the device:
+Fill `MD` with a value in the following final device-side format:
 
-```json
-{
-  "mode": "mdns",
-  "mdns": {
-    "sn": "8c4f00c31844",
-    "dat_url": "http://0.0.0.0/rpc/EM.GetStatus?id=0"
-  },
-  "dat_str": {
-    "pwr": "total_act_power"
-  }
-}
-```
-
-Inside a `/write` request, the same `MD` must be sent as a string:
-
-```json
-{
-  "state": {
-    "MD": "{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"8c4f00c31844\",\"dat_url\":\"http://0.0.0.0/rpc/EM.GetStatus?id\\u003d0\"},\"dat_str\":{\"pwr\":\"total_act_power\"}}"
-  }
-}
+```text
+{"mode":"mdns","mdns":{"sn":"8c4f00c31844","dat_url":"http://0.0.0.0/rpc/EM.GetStatus?id\u003d0"},"dat_str":{"pwr":"total_act_power"}}
 ```
 
 Field meanings:
@@ -215,77 +198,33 @@ The device currently supports the following four meter categories for Local Self
 | --- | --- | --- | --- | --- |
 | `ECOTRACKER` | `direct` | `direct.dat_url = http://{meter_ip}/v1/json` | `power` | The current LAN IP of the meter is required. Do not use a placeholder |
 | `SHELLY_3EM_METER` | `mdns` | `mdns.sn = meter SN`; `mdns.dat_url = http://0.0.0.0/status` | `total_power` | Use the meter SN directly |
-| `SHELLY_PRO3EM_METER` | `mdns` | `mdns.sn = meter SN`; `mdns.dat_url = http://0.0.0.0/rpc/EM.GetStatus?id=0` | `total_act_power` | Use the meter SN directly |
+| `SHELLY_PRO3EM_METER` | `mdns` | `mdns.sn = meter SN`; `mdns.dat_url = http://0.0.0.0/rpc/EM.GetStatus?id\u003d0` | `total_act_power` | Use the meter SN directly |
 | `TASMOTA` | `mdns` | `mdns.sn = SN prefix without the last 4 characters`; `mdns.dat_url = http://0.0.0.0/cm?cmnd=Status%208` | Depends on subtype | `dat_str.pwr` must match the exact current subtype. See the full list in Section 5.4 |
 
 ### 5.3 `MD` Examples by Meter Category
 
 #### 5.3.1 EcoTracker
 
-Readable structure:
+Fill this `MD` value:
 
-```json
-{
-  "mode": "direct",
-  "direct": {
-    "dat_url": "http://192.168.1.50/v1/json"
-  },
-  "dat_str": {
-    "pwr": "power"
-  }
-}
-```
-
-Actual string value to write into `MD`:
-
-```json
-"{\"mode\":\"direct\",\"direct\":{\"dat_url\":\"http://192.168.1.50/v1/json\"},\"dat_str\":{\"pwr\":\"power\"}}"
+```text
+{"mode":"direct","direct":{"dat_url":"http://192.168.1.50/v1/json"},"dat_str":{"pwr":"power"}}
 ```
 
 #### 5.3.2 Shelly 3EM
 
-Readable structure:
+Fill this `MD` value:
 
-```json
-{
-  "mode": "mdns",
-  "mdns": {
-    "sn": "B929CC",
-    "dat_url": "http://0.0.0.0/status"
-  },
-  "dat_str": {
-    "pwr": "total_power"
-  }
-}
-```
-
-Actual string value to write into `MD`:
-
-```json
-"{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"B929CC\",\"dat_url\":\"http://0.0.0.0/status\"},\"dat_str\":{\"pwr\":\"total_power\"}}"
+```text
+{"mode":"mdns","mdns":{"sn":"B929CC","dat_url":"http://0.0.0.0/status"},"dat_str":{"pwr":"total_power"}}
 ```
 
 #### 5.3.3 Shelly Pro 3EM
 
-Readable structure:
+Fill this `MD` value:
 
-```json
-{
-  "mode": "mdns",
-  "mdns": {
-    "sn": "8c4f00c31844",
-    "dat_url": "http://0.0.0.0/rpc/EM.GetStatus?id=0"
-  },
-  "dat_str": {
-    "pwr": "total_act_power"
-  }
-}
-```
-
-Actual string value to write into `MD`:
-
-```json
-"{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"8c4f00c31844\",\"dat_url\":\"http://0.0.0.0/rpc/EM.GetStatus?id\\u003d0\"},\"dat_str\":{\"pwr\":\"total_act_power\"}}"
+```text
+{"mode":"mdns","mdns":{"sn":"8c4f00c31844","dat_url":"http://0.0.0.0/rpc/EM.GetStatus?id\u003d0"},"dat_str":{"pwr":"total_act_power"}}
 ```
 
 #### 5.3.4 Tasmota
@@ -297,25 +236,10 @@ Notes:
 - `mdns.sn` is not the full device SN. It uses the prefix with the last 4 characters removed. Example: `tasmota-c28338-0824` becomes `tasmota-c28338`
 - `dat_str.pwr` must match the exact meter subtype
 
-Readable structure:
+Fill this `MD` value:
 
-```json
-{
-  "mode": "mdns",
-  "mdns": {
-    "sn": "tasmota-c28338",
-    "dat_url": "http://0.0.0.0/cm?cmnd=Status%208"
-  },
-  "dat_str": {
-    "pwr": "Power"
-  }
-}
-```
-
-Actual string value to write into `MD`:
-
-```json
-"{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"tasmota-c28338\",\"dat_url\":\"http://0.0.0.0/cm?cmnd=Status%208\"},\"dat_str\":{\"pwr\":\"Power\"}}"
+```text
+{"mode":"mdns","mdns":{"sn":"tasmota-c28338","dat_url":"http://0.0.0.0/cm?cmnd=Status%208"},"dat_str":{"pwr":"Power"}}
 ```
 
 ### 5.4 Full BitShake / Tasmota `dat_str.pwr` Mapping List
@@ -414,11 +338,11 @@ If the current meter subtype is not listed above, do not fill `MD` for that Tasm
 | `SI / SA / SO` | `integer` | SOC limits | `SI1 / SA1` are reserved fields and should not be assumed by default |
 | `LM` | `integer` | Local mode state | `0 = off`, `1 = on` |
 | `MM` | `integer` | Local Self-Consumption Mode state | `0 = off`, `1 = on` |
-| `MD` | `string` | Stored meter connection string | This is the real JSON string, not a display label |
+| `MD` | `string` | Meter connection runtime value when present | Do not use it as guaranteed echo of the last written `MD` |
 | `MS` | `integer` | Meter state | Current known values: `0 = no meter bound`, `1 = online`, `2 = offline`, `3 = requesting IP` |
 | `IP` | `string` | Local mode IP address | Reported by the device |
 | `COM` | `integer` | Local mode port | Reported by the device |
-| `TZ` | `string` | Current timezone value | Same semantics as the write contract |
+| `TZ` | `string` | Timezone runtime value when present | Do not use it as guaranteed echo of the last written `TZ` |
 | `ES` | `string` | Wi-Fi / module firmware version | Stable version field |
 | `AS` | `string` | AC firmware version | Stable version field |
 | `DS` | `string` | DC firmware version | Stable version field |
@@ -477,19 +401,23 @@ Content-Type: application/json
 }
 ```
 
+The setting takes effect immediately, but the device may not echo the same `TZ` value back.
+
 ### 7.5 Enable Local Self-Consumption Mode with Shelly Pro 3EM
 
 ```http
 POST http://192.168.1.102/write
 Content-Type: application/json
-
-{
-  "state": {
-    "MM": 1,
-    "MD": "{\"mode\":\"mdns\",\"mdns\":{\"sn\":\"8c4f00c31844\",\"dat_url\":\"http://0.0.0.0/rpc/EM.GetStatus?id\\u003d0\"},\"dat_str\":{\"pwr\":\"total_act_power\"}}"
-  }
-}
 ```
+
+Write the following values under `state`:
+
+| Field | Value |
+| --- | --- |
+| `MM` | `1` |
+| `MD` | `{"mode":"mdns","mdns":{"sn":"8c4f00c31844","dat_url":"http://0.0.0.0/rpc/EM.GetStatus?id\u003d0"},"dat_str":{"pwr":"total_act_power"}}` |
+
+`MD` takes effect immediately, but the device may not echo the same value back. Confirm success through `MS` and live meter data.
 
 ### 7.6 Restart the Device
 
@@ -507,6 +435,7 @@ Content-Type: application/json
 ## 8. Integration Notes
 
 - Always use `/read` as the source of truth after every write.
+- For `MD` and `TZ`, confirm the result by the resulting effect. Do not rely on those fields as guaranteed direct echo values.
 - For normal monitoring, `2s ~ 5s` polling is usually reasonable. For short-term write confirmation, `1s ~ 2s` can be used temporarily.
 - Avoid mixing unrelated actions in the same `/write` request, especially `RT` together with configuration updates.
 - If you need to support multiple firmware branches, implement only against the stable core fields defined in this document. Do not assume undocumented fields are always present.

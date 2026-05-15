@@ -26,10 +26,14 @@ import aiohttp
 import async_timeout
 import voluptuous as vol
 from homeassistant import config_entries, exceptions
+from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
+from homeassistant.const import UnitOfPower
 from homeassistant.data_entry_flow import AbortFlow, FlowResult
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import selector
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
-from .const import DOMAIN, HOST_PREFIX, HOST_SUFFIX
+from .const import CONF_GRID_SENSOR, DOMAIN, HOST_PREFIX, HOST_SUFFIX
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,6 +97,7 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     - User input validation for IP addresses
     - Device discovery via Zeroconf
     - Device information retrieval
+    - Optional HA entity as grid power sensor (for automatic GS control)
     - Configuration entry creation
     - Error handling for various failure scenarios
     """
@@ -109,6 +114,9 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_sn: str | None = None
         self._discovered_ip: str | None = None
         self._discovered_model: str | None = None
+        self._ip: str | None = None
+        self._sn: str | None = None
+        self._model: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -138,6 +146,10 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(sn)
                 self._abort_if_unique_id_configured(updates={"ip": ip})
 
+                self._ip = ip
+                self._sn = sn
+                self._model = model
+
             except InvalidIP:
                 errors["base"] = "invalid_ip"
 
@@ -164,19 +176,65 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
             if not errors:
-                return self.async_create_entry(
-                    title=model,
-                    data={
-                        "ip": ip,
-                        "sn": sn,
-                        "model": model,
-                    },
-                )
+                # Device found — proceed to optional grid sensor step
+                return await self.async_step_grid_sensor()
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({vol.Required("IP"): str}),
             errors=errors,
+        )
+
+    async def async_step_grid_sensor(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """
+        Optional step: select a HA sensor entity as grid power source.
+
+        When configured, the integration will automatically write GS to the
+        device whenever the sensor value changes, without any manual rest_command.
+
+        The sensor must provide grid power in Watts:
+        - Positive values = export to grid (feed-in)
+        - Negative values = import from grid (consumption)
+
+        Args:
+            user_input: Dictionary containing user input
+
+        Returns:
+            FlowResult indicating the next step in the configuration flow
+
+        """
+        if user_input is not None:
+            grid_sensor = user_input.get(CONF_GRID_SENSOR)
+
+            return self.async_create_entry(
+                title=self._model,
+                data={
+                    "ip": self._ip,
+                    "sn": self._sn,
+                    "model": self._model,
+                    CONF_GRID_SENSOR: grid_sensor or None,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="grid_sensor",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_GRID_SENSOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain=SENSOR_DOMAIN,
+                            device_class="power",
+                            multiple=False,
+                        )
+                    ),
+                }
+            ),
+            description_placeholders={
+                "sn": self._sn,
+                "model": self._model,
+            },
         )
 
     async def async_step_zeroconf(
@@ -244,6 +302,10 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(sn)
                 self._abort_if_unique_id_configured(updates={"ip": ip})
 
+                self._ip = ip
+                self._sn = sn
+                self._model = model
+
             except CannotConnect:
                 return self.async_abort(reason="cannot_connect")
 
@@ -263,10 +325,8 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during zeroconf step: %s", err)
                 return self.async_abort(reason="unknown")
 
-            return self.async_create_entry(
-                title=model,
-                data={"ip": ip, "sn": sn, "model": model},
-            )
+            # Device confirmed — proceed to optional grid sensor step
+            return await self.async_step_grid_sensor()
 
         return self.async_show_form(
             step_id="zeroconf_confirm",

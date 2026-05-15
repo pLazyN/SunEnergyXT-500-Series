@@ -23,6 +23,16 @@
                 "data_description": {
                     "grid_sensor_entity_id": "提供电网功率（瓦特）的传感器（例如 SolarEdge 电表、Shelly、Tibber Pulse 等）。留空表示手动控制。"
                 }
+            },
+            "reconfigure": {
+                "title": "更改电网功率传感器",
+                "description": "更改用于自动自耗电控制的 Home Assistant 传感器。\n\n正值 = 向电网馈电，负值 = 从电网取电。\n\n留空则禁用自动控制。",
+                "data": {
+                    "grid_sensor_entity_id": "电网功率传感器"
+                },
+                "data_description": {
+                    "grid_sensor_entity_id": "提供电网功率（瓦特）的传感器。留空表示手动控制。"
+                }
             }
         },
         "error": {
@@ -40,7 +50,8 @@
             "cannot_get_model": "无法获取设备型号，请检查设备状态。",
             "not_device": "发现的设备不是 SunEnergyXT 设备。",
             "already_configured": "该设备已被添加。",
-            "unknown": "发生未知错误。"
+            "unknown": "发生未知错误。",
+            "reconfigure_successful": "配置已成功更新。"
         }
     },
     "entity": {

@@ -23,6 +23,16 @@
                 "data_description": {
                     "grid_sensor_entity_id": "Sensor mit Netzleistung in Watt (z. B. vom SolarEdge Meter, Shelly, Tibber Pulse …). Feld leer lassen für manuellen Betrieb."
                 }
+            },
+            "reconfigure": {
+                "title": "Netzfluss-Sensor ändern",
+                "description": "Ändere den Home Assistant Sensor für die automatische Eigenverbrauchsregelung.\n\nPositive Werte = Einspeisung ins Netz, negative Werte = Bezug aus dem Netz.\n\nFeld leer lassen um die automatische Regelung zu deaktivieren.",
+                "data": {
+                    "grid_sensor_entity_id": "Netzfluss-Sensor"
+                },
+                "data_description": {
+                    "grid_sensor_entity_id": "Sensor mit Netzleistung in Watt. Feld leer lassen für manuellen Betrieb."
+                }
             }
         },
         "error": {
@@ -40,7 +50,8 @@
             "cannot_get_model": "Gerätemodell kann nicht abgerufen werden. Bitte Gerätestatus prüfen.",
             "not_device": "Das gefundene Gerät ist kein SunEnergyXT‑Gerät.",
             "already_configured": "Dieses Gerät wurde bereits hinzugefügt.",
-            "unknown": "Ein unbekannter Fehler ist aufgetreten."
+            "unknown": "Ein unbekannter Fehler ist aufgetreten.",
+            "reconfigure_successful": "Konfiguration erfolgreich aktualisiert."
         }
     },
     "entity": {

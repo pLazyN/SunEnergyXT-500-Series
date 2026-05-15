@@ -2,8 +2,8 @@
 Configuration flow for SunEnergyXT 500 Series integration.
 
 This module handles the configuration process for the SunEnergyXT integration,
-including user input validation, device discovery via Zeroconf, and device
-information retrieval.
+including user input validation, device discovery via Zeroconf, device
+information retrieval, and reconfiguration support.
 
 Classes:
 - SunlitConfigFlow: Main configuration flow handler for the integration
@@ -27,9 +27,7 @@ import async_timeout
 import voluptuous as vol
 from homeassistant import config_entries, exceptions
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
-from homeassistant.const import UnitOfPower
 from homeassistant.data_entry_flow import AbortFlow, FlowResult
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
@@ -97,8 +95,9 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     - User input validation for IP addresses
     - Device discovery via Zeroconf
     - Device information retrieval
-    - Optional HA entity as grid power sensor (for automatic GS control)
+    - Optional HA entity as grid power sensor (local HTTP proxy → MM/MD)
     - Configuration entry creation
+    - Reconfiguration of grid sensor without reinstalling
     - Error handling for various failure scenarios
     """
 
@@ -176,7 +175,6 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
             if not errors:
-                # Device found — proceed to optional grid sensor step
                 return await self.async_step_grid_sensor()
 
         return self.async_show_form(
@@ -191,8 +189,9 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         Optional step: select a HA sensor entity as grid power source.
 
-        When configured, the integration will automatically write GS to the
-        device whenever the sensor value changes, without any manual rest_command.
+        When configured, the integration registers a local HTTP proxy endpoint
+        in HA (Shelly-compatible format) and sets MD/MM on the device so it
+        uses its internal PID controller for regulation.
 
         The sensor must provide grid power in Watts:
         - Positive values = export to grid (feed-in)
@@ -234,6 +233,59 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "sn": self._sn,
                 "model": self._model,
+            },
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """
+        Handle reconfiguration of an existing SunEnergyXT entry.
+
+        Allows the user to change or remove the grid sensor without
+        having to delete and re-add the integration.
+
+        The current grid sensor is pre-filled so the user can see what
+        is configured and change it if needed.
+
+        Args:
+            user_input: Dictionary containing user input
+
+        Returns:
+            FlowResult indicating the next step in the configuration flow
+
+        """
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        current_grid_sensor = entry.data.get(CONF_GRID_SENSOR) if entry else None
+
+        if user_input is not None:
+            grid_sensor = user_input.get(CONF_GRID_SENSOR) or None
+
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates={CONF_GRID_SENSOR: grid_sensor},
+                reason="reconfigure_successful",
+            )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_GRID_SENSOR,
+                        default=current_grid_sensor,
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain=SENSOR_DOMAIN,
+                            device_class="power",
+                            multiple=False,
+                        )
+                    ),
+                }
+            ),
+            description_placeholders={
+                "sn": entry.data.get("sn") if entry else "",
+                "model": entry.data.get("model") if entry else "",
             },
         )
 
@@ -325,7 +377,6 @@ class SunlitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during zeroconf step: %s", err)
                 return self.async_abort(reason="unknown")
 
-            # Device confirmed — proceed to optional grid sensor step
             return await self.async_step_grid_sensor()
 
         return self.async_show_form(

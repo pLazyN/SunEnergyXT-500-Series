@@ -26,7 +26,7 @@ from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN
+from .const import CONF_GRID_SENSOR, DOMAIN
 from .coordinator import SunlitDataUpdateCoordinator
 
 if TYPE_CHECKING:
@@ -86,6 +86,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     sn = entry.data.get("sn")
     ip = entry.data.get("ip")
     model = entry.data.get("model")
+    grid_sensor = entry.data.get(CONF_GRID_SENSOR)
 
     try:
         await _test_connection(ip)
@@ -94,7 +95,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         msg = f"Device not ready: {err}"
         raise ConfigEntryNotReady(msg) from err
 
-    coordinator = SunlitDataUpdateCoordinator(hass=hass, sn=sn, ip=ip)
+    coordinator = SunlitDataUpdateCoordinator(
+        hass=hass,
+        sn=sn,
+        ip=ip,
+        grid_sensor_entity_id=grid_sensor,
+    )
+    await coordinator.async_setup()
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = {

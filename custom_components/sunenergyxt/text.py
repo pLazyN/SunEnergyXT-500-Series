@@ -1,14 +1,14 @@
 """
-Text entities for SunEnergyXT 500 Series integration.
+Button entities for SunEnergyXT 500 Series integration.
 
-This module implements text entities for the SunEnergyXT integration,
-allowing control of text-based device parameters such as mode and time zone.
+This module implements button entities for the SunEnergyXT integration,
+primarily used for device restart functionality.
 
 Classes:
-- SunlitText: Represents a text entity for controlling SunEnergyXT device parameters
+- SunlitButton: Represents a button entity for controlling SunEnergyXT devices
 
 Constants:
-- TEXT_META: Metadata configuration for text entities
+- BUTTON_META: Metadata configuration for button entities
 """
 
 import logging
@@ -16,11 +16,11 @@ from http import HTTPStatus
 from typing import Any
 
 import async_timeout
-from homeassistant.components.text import TextEntity
+from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -29,14 +29,10 @@ from .coordinator import SunlitDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-TEXT_META: dict[str, dict[str, Any]] = {
-    "MD": {
-        "entity_category": EntityCategory.CONFIG,
-        "icon": "mdi:code-json",
-    },
-    "TZ": {
-        "entity_category": EntityCategory.CONFIG,
-        "icon": "mdi:map-clock-outline",
+BUTTON_META: dict[str, dict[str, Any]] = {
+    "RT": {
+        "device_class": ButtonDeviceClass.RESTART,
+        "icon": "mdi:restart",
     },
 }
 
@@ -47,7 +43,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """
-    Set up text entities for SunEnergyXT.
+    Set up button entities for SunEnergyXT.
 
     Args:
         hass: Home Assistant instance
@@ -69,16 +65,15 @@ async def async_setup_entry(
         serial_number=sn,
     )
 
-    entities: list[TextEntity] = []
+    entities: list[ButtonEntity] = []
 
     keys = [
-        "MD",
-        "TZ",
+        "RT",
     ]
 
     for key in keys:
         entities.append(
-            SunlitText(
+            SunlitButton(
                 coordinator=coordinator,
                 entry_id=entry.entry_id,
                 key=key,
@@ -92,12 +87,12 @@ async def async_setup_entry(
     async_add_entities(entities, True)  # noqa: FBT003
 
 
-class SunlitText(CoordinatorEntity[SunlitDataUpdateCoordinator], TextEntity):
+class SunlitButton(CoordinatorEntity[SunlitDataUpdateCoordinator], ButtonEntity):
     """
-    Text entity for SunEnergyXT device parameters.
+    Button entity for SunEnergyXT device actions.
 
-    Represents a text entity that controls text-based device parameters
-    such as mode and time zone.
+    Represents a button entity that triggers specific actions on the SunEnergyXT device,
+    such as device restart.
     """
 
     _attr_has_entity_name = True
@@ -113,7 +108,7 @@ class SunlitText(CoordinatorEntity[SunlitDataUpdateCoordinator], TextEntity):
         hass: HomeAssistant,
     ) -> None:
         """
-        Initialize the text entity.
+        Initialize the button entity.
 
         Args:
             coordinator: Data update coordinator
@@ -131,58 +126,31 @@ class SunlitText(CoordinatorEntity[SunlitDataUpdateCoordinator], TextEntity):
         self._ip = ip
         self._session = async_get_clientsession(hass)
 
-        meta = TEXT_META.get(key, {})
+        meta = BUTTON_META.get(key, {})
 
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{key}"
         self._attr_translation_key = key.lower()
         self._attr_device_info = device_info
 
-        entity_category = meta.get("entity_category")
-        if entity_category is not None:
-            self._attr_entity_category = entity_category
+        device_class = meta.get("device_class")
+        if device_class:
+            self._attr_device_class = device_class
 
         icon = meta.get("icon")
         if icon:
             self._attr_icon = icon
 
-    @property
-    def native_value(self) -> str:
+    async def async_press(self) -> None:
         """
-        Get the current value of the text entity.
+        Handle button press event.
 
-        Returns:
-            Current text value
-
-        """
-        raw = self.coordinator.data.get(self._key)
-        return str(raw) if raw is not None else ""
-
-    async def async_set_value(self, value: str) -> None:
-        """
-        Set the value of the text entity.
-
-        Args:
-            value: New text value to set
-
-        """
-        await self._async_write_text(value)
-
-    async def _async_write_text(self, value: str) -> None:
-        """
-        Write the text value to the device.
-
-        Args:
-            value: Text value to write to the device
+        Sends a request to the device to perform the action associated with this button.
 
         Raises:
-            RuntimeError: If there's an error writing to the device
+            RuntimeError: If there's an error pressing the button
 
         """
-        if self._key == "MD":
-            mm_value = 0 if value.strip() == "" else 1
-            payload = {"state": {"MM": mm_value, "MD": value}}
-        else:
-            payload = {"state": {self._key: value}}
+        payload = {"state": {self._key: 1}}
         try:
             async with (
                 async_timeout.timeout(5),
@@ -196,11 +164,5 @@ class SunlitText(CoordinatorEntity[SunlitDataUpdateCoordinator], TextEntity):
                     msg = f"HTTP {resp.status}: {text}"
                     raise RuntimeError(msg)
         except Exception as err:
-            _LOGGER.exception("Error writing text %s: %s", self._key, err)
+            _LOGGER.exception("Error pressing button %s: %s", self._key, err)
             raise
-
-        if isinstance(self.coordinator.data, dict):
-            self.coordinator.data[self._key] = value
-            if self._key == "MD":
-                self.coordinator.data["MM"] = 0 if value.strip() == "" else 1
-        self.async_write_ha_state()

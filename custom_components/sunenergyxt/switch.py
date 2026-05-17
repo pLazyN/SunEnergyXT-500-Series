@@ -39,6 +39,9 @@ SWITCH_META: dict[str, dict[str, Any]] = {
     "PM": {
         "icon": "mdi:link-variant",
     },
+    "UO": {
+        "icon": "mdi:power-plug-outline",
+    },
 }
 
 
@@ -76,6 +79,7 @@ async def async_setup_entry(
         "LM",
         "MM",
         "PM",
+        "UO",
     ]
 
     for key in keys:

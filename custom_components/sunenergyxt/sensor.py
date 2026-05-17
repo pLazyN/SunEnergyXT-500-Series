@@ -76,34 +76,35 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:solar-power",
     },
     "PV1": {
+        "enabled_default": False,
         "unit": UnitOfPower.WATT,
         "device_class": SensorDeviceClass.POWER,
-        "entity_category": EntityCategory.DIAGNOSTIC,
         "state_class": SensorStateClass.MEASUREMENT,
         "icon": "mdi:solar-panel",
     },
     "PV2": {
+        "enabled_default": False,
         "unit": UnitOfPower.WATT,
         "device_class": SensorDeviceClass.POWER,
-        "entity_category": EntityCategory.DIAGNOSTIC,
         "state_class": SensorStateClass.MEASUREMENT,
         "icon": "mdi:solar-panel",
     },
     "PV3": {
+        "enabled_default": False,
         "unit": UnitOfPower.WATT,
         "device_class": SensorDeviceClass.POWER,
-        "entity_category": EntityCategory.DIAGNOSTIC,
         "state_class": SensorStateClass.MEASUREMENT,
         "icon": "mdi:solar-panel",
     },
     "PV4": {
+        "enabled_default": False,
         "unit": UnitOfPower.WATT,
         "device_class": SensorDeviceClass.POWER,
-        "entity_category": EntityCategory.DIAGNOSTIC,
         "state_class": SensorStateClass.MEASUREMENT,
         "icon": "mdi:solar-panel",
     },
     "II1": {
+        "enabled_default": False,
         "unit": UnitOfElectricCurrent.AMPERE,
         "device_class": SensorDeviceClass.CURRENT,
         "scale": 0.1,
@@ -113,6 +114,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:current-dc",
     },
     "II2": {
+        "enabled_default": False,
         "unit": UnitOfElectricCurrent.AMPERE,
         "device_class": SensorDeviceClass.CURRENT,
         "scale": 0.1,
@@ -122,6 +124,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:current-dc",
     },
     "II3": {
+        "enabled_default": False,
         "unit": UnitOfElectricCurrent.AMPERE,
         "device_class": SensorDeviceClass.CURRENT,
         "scale": 0.1,
@@ -131,6 +134,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:current-dc",
     },
     "II4": {
+        "enabled_default": False,
         "unit": UnitOfElectricCurrent.AMPERE,
         "device_class": SensorDeviceClass.CURRENT,
         "scale": 0.1,
@@ -140,6 +144,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:current-dc",
     },
     "VP1": {
+        "enabled_default": False,
         "unit": UnitOfElectricPotential.VOLT,
         "device_class": SensorDeviceClass.VOLTAGE,
         "scale": 0.1,
@@ -149,6 +154,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:sine-wave",
     },
     "VP2": {
+        "enabled_default": False,
         "unit": UnitOfElectricPotential.VOLT,
         "device_class": SensorDeviceClass.VOLTAGE,
         "scale": 0.1,
@@ -158,6 +164,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:sine-wave",
     },
     "VP3": {
+        "enabled_default": False,
         "unit": UnitOfElectricPotential.VOLT,
         "device_class": SensorDeviceClass.VOLTAGE,
         "scale": 0.1,
@@ -167,6 +174,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:sine-wave",
     },
     "VP4": {
+        "enabled_default": False,
         "unit": UnitOfElectricPotential.VOLT,
         "device_class": SensorDeviceClass.VOLTAGE,
         "scale": 0.1,
@@ -224,6 +232,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:battery",
     },
     "SC0": {
+        "enabled_default": False,
         "unit": PERCENTAGE,
         "device_class": SensorDeviceClass.BATTERY,
         "entity_category": EntityCategory.DIAGNOSTIC,
@@ -231,6 +240,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:battery-outline",
     },
     "SC1": {
+        "enabled_default": False,
         "unit": PERCENTAGE,
         "device_class": SensorDeviceClass.BATTERY,
         "entity_category": EntityCategory.DIAGNOSTIC,
@@ -238,6 +248,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:battery-outline",
     },
     "SC2": {
+        "enabled_default": False,
         "unit": PERCENTAGE,
         "device_class": SensorDeviceClass.BATTERY,
         "entity_category": EntityCategory.DIAGNOSTIC,
@@ -245,6 +256,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:battery-outline",
     },
     "SC3": {
+        "enabled_default": False,
         "unit": PERCENTAGE,
         "device_class": SensorDeviceClass.BATTERY,
         "entity_category": EntityCategory.DIAGNOSTIC,
@@ -252,6 +264,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:battery-outline",
     },
     "SC4": {
+        "enabled_default": False,
         "unit": PERCENTAGE,
         "device_class": SensorDeviceClass.BATTERY,
         "entity_category": EntityCategory.DIAGNOSTIC,
@@ -259,6 +272,7 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:battery-outline",
     },
     "SC5": {
+        "enabled_default": False,
         "unit": PERCENTAGE,
         "device_class": SensorDeviceClass.BATTERY,
         "entity_category": EntityCategory.DIAGNOSTIC,
@@ -275,26 +289,32 @@ SENSOR_META: dict[str, dict[str, Any]] = {
         "icon": "mdi:chip",
     },
     "BS0": {
+        "enabled_default": False,
         "entity_category": EntityCategory.DIAGNOSTIC,
         "icon": "mdi:chip",
     },
     "BS1": {
+        "enabled_default": False,
         "entity_category": EntityCategory.DIAGNOSTIC,
         "icon": "mdi:chip",
     },
     "BS2": {
+        "enabled_default": False,
         "entity_category": EntityCategory.DIAGNOSTIC,
         "icon": "mdi:chip",
     },
     "BS3": {
+        "enabled_default": False,
         "entity_category": EntityCategory.DIAGNOSTIC,
         "icon": "mdi:chip",
     },
     "BS4": {
+        "enabled_default": False,
         "entity_category": EntityCategory.DIAGNOSTIC,
         "icon": "mdi:chip",
     },
     "BS5": {
+        "enabled_default": False,
         "entity_category": EntityCategory.DIAGNOSTIC,
         "icon": "mdi:chip",
     },
@@ -313,6 +333,89 @@ SENSOR_META: dict[str, dict[str, Any]] = {
     "MS": {
         "entity_category": EntityCategory.DIAGNOSTIC,
         "icon": "mdi:meter-electric",
+    },
+    "PD": {
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": SensorDeviceClass.ENERGY,
+        "scale": 0.001,
+        "precision": 3,
+        "state_class": SensorStateClass.TOTAL_INCREASING,
+        "icon": "mdi:solar-power",
+    },
+    "BN": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "icon": "mdi:battery-check-outline",
+    },
+    "WT": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:wifi-cog",
+    },
+    "UO": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:power-plug-outline",
+    },
+    "UP": {
+        "enabled_default": False,
+        "unit": UnitOfPower.WATT,
+        "device_class": SensorDeviceClass.POWER,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "icon": "mdi:solar-power-variant",
+    },
+    "UG": {
+        "enabled_default": False,
+        "unit": UnitOfPower.WATT,
+        "device_class": SensorDeviceClass.POWER,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "icon": "mdi:transmission-tower-import",
+    },
+    "FP": {
+        "enabled_default": False,
+        "unit": UnitOfPower.WATT,
+        "device_class": SensorDeviceClass.POWER,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "icon": "mdi:solar-power-variant-outline",
+    },
+    "TF": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:alert-circle-outline",
+    },
+    "EF": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:alert-circle-outline",
+    },
+    "DF1": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:alert-circle-outline",
+    },
+    "DF2": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:alert-circle-outline",
+    },
+    "AF1": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:alert-circle-outline",
+    },
+    "AF2": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:alert-circle-outline",
+    },
+    "BF": {
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "icon": "mdi:alert-circle-outline",
     },
 }
 
@@ -390,6 +493,20 @@ async def async_setup_entry(
         "DS",
         "SN",
         "MS",
+        "PD",
+        "BN",
+        "WT",
+        "UO",
+        "UP",
+        "UG",
+        "FP",
+        "TF",
+        "EF",
+        "DF1",
+        "DF2",
+        "AF1",
+        "AF2",
+        "BF",
     ]
 
     for key in keys:
@@ -469,6 +586,9 @@ class SunlitSensor(
         entity_category = meta.get("entity_category")
         if entity_category is not None:
             self._attr_entity_category = entity_category
+
+        if not meta.get("enabled_default", True):
+            self._attr_entity_registry_enabled_default = False
 
     @property
     def native_value(self) -> Any:

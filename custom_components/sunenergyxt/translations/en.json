@@ -192,6 +192,51 @@
                     "1": "Online",
                     "2": "Offline"
                 }
+            },
+            "pb": {
+                "name": "Battery Power"
+            },
+            "pd": {
+                "name": "Today's PV Energy"
+            },
+            "bn": {
+                "name": "Total Battery Pack Count"
+            },
+            "wt": {
+                "name": "Wi-Fi Network Status"
+            },
+            "uo": {
+                "name": "UPS Mode"
+            },
+            "up": {
+                "name": "UPS PV Bypass Power"
+            },
+            "ug": {
+                "name": "UPS Grid Charge Power"
+            },
+            "fp": {
+                "name": "Max PV Bypass Output Power"
+            },
+            "tf": {
+                "name": "System Error Bitmask"
+            },
+            "ef": {
+                "name": "EMS Error Bitmask"
+            },
+            "df1": {
+                "name": "DC Error Bitmask 1"
+            },
+            "df2": {
+                "name": "DC Error Bitmask 2"
+            },
+            "af1": {
+                "name": "AC Error Bitmask 1"
+            },
+            "af2": {
+                "name": "AC Error Bitmask 2"
+            },
+            "bf": {
+                "name": "BMS Error Bitmask"
             }
         },
         "number": {
@@ -212,6 +257,15 @@
             },
             "pt": {
                 "name": "System Auto-Shutdown Time Setting"
+            },
+            "up": {
+                "name": "UPS PV Bypass Power"
+            },
+            "ug": {
+                "name": "UPS Grid Charge Power"
+            },
+            "fp": {
+                "name": "Max PV Bypass Output Power"
             }
         },
         "button": {
@@ -228,6 +282,9 @@
             },
             "pm": {
                 "name": "System Parallel Mode"
+            },
+            "uo": {
+                "name": "UPS Mode"
             }
         },
         "text": {

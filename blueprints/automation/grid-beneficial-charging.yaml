@@ -1,7 +1,7 @@
 blueprint:
   name: "SunEnergyXT – Grid-Beneficial Charging & Discharging"
   description: >
-    **Version 1.0.1**
+    **Version 1.0.2**
 
     Controls the SunEnergyXT battery storage in a grid-beneficial way using
     two operating modes:

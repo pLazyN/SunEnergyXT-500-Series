@@ -45,6 +45,7 @@ blueprint:
               filter:
                 - integration: sunenergyxt
                   domain: sensor
+                  device_class: battery
 
         battery_gs_number:
           name: "Grid Setpoint GS (Number)"
@@ -56,6 +57,7 @@ blueprint:
               filter:
                 - integration: sunenergyxt
                   domain: number
+                  device_class: power
 
         battery_is_number:
           name: "Max. Inverterleistung IS (Number)"
@@ -67,6 +69,7 @@ blueprint:
               filter:
                 - integration: sunenergyxt
                   domain: number
+                  device_class: power
 
         battery_mm_switch:
           name: "Self-Consumption Modus MM (Switch)"

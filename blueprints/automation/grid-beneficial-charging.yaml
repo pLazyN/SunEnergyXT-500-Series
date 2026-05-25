@@ -1,7 +1,7 @@
 blueprint:
   name: "SunEnergyXT – Grid-Beneficial Charging & Discharging"
   description: >
-    **Version 1.0.0**
+    **Version 1.0.1**
 
     Controls the SunEnergyXT battery storage in a grid-beneficial way using
     two operating modes:
@@ -38,43 +38,47 @@ blueprint:
         battery_soc_sensor:
           name: "Speicher SOC (Sensor)"
           description: >
-            Aktueller Ladestand des Speichers in Prozent.
-            Typisch: sensor.{seriennummer}_sc
+            Aktueller Ladestand des Speichers in Prozent (API-Feld: SC).
+            Zeigt nur Sensoren der SunEnergyXT-Integration.
           selector:
             entity:
               filter:
-                - device_class: battery
+                - integration: sunenergyxt
+                  domain: sensor
 
         battery_gs_number:
           name: "Grid Setpoint GS (Number)"
           description: >
             Steuert die Lade-/Entladeleistung. Negativ = Laden, Positiv = Entladen.
-            Typisch: number.{seriennummer}_gs
+            API-Feld: GS. Zeigt nur Number-Entities der SunEnergyXT-Integration.
           selector:
             entity:
               filter:
-                - domain: number
+                - integration: sunenergyxt
+                  domain: number
 
         battery_is_number:
           name: "Max. Inverterleistung IS (Number)"
           description: >
             Maximale Lade-/Entladeleistung in Watt (Hardware-Obergrenze).
-            Typisch: number.{seriennummer}_is
+            API-Feld: IS. Zeigt nur Number-Entities der SunEnergyXT-Integration.
           selector:
             entity:
               filter:
-                - domain: number
+                - integration: sunenergyxt
+                  domain: number
 
         battery_mm_switch:
           name: "Self-Consumption Modus MM (Switch)"
           description: >
             Kern der Steuerung: MM=0 beim aktiven Laden (Blueprint übernimmt),
             MM=1 in allen anderen Situationen (PID des Geräts übernimmt).
-            Typisch: switch.{seriennummer}_mm
+            API-Feld: MM. Zeigt nur Switches der SunEnergyXT-Integration.
           selector:
             entity:
               filter:
-                - domain: switch
+                - integration: sunenergyxt
+                  domain: switch
 
     # =========================================================================
     # SPEICHER – SOC Grenzen (optional, direkt vom Gerät)
@@ -89,23 +93,25 @@ blueprint:
           name: "Max. Charge SOC SA (Number, optional)"
           description: >
             Maximaler Ladestand in %. Wenn nicht gesetzt → 100%.
-            Typisch: number.{seriennummer}_sa
+            API-Feld: SA. Nur SunEnergyXT Number-Entities.
           default:
           selector:
             entity:
               filter:
-                - domain: number
+                - integration: sunenergyxt
+                  domain: number
 
         battery_si_number:
           name: "Min. Discharge SOC SI (Number, optional)"
           description: >
             Minimaler Entladestand in %. Wenn nicht gesetzt → 10%.
-            Typisch: number.{seriennummer}_si
+            API-Feld: SI. Nur SunEnergyXT Number-Entities.
           default:
           selector:
             entity:
               filter:
-                - domain: number
+                - integration: sunenergyxt
+                  domain: number
 
     # =========================================================================
     # PV & NETZ
@@ -472,15 +478,7 @@ trigger:
   - platform: time_pattern
     minutes: !input update_interval_minutes
 
-  # Sofortige Reaktion wenn E-Auto Ladestatus sich ändert
-  - platform: state
-    entity_id: !input wallbox_power_sensor
-  - platform: state
-    entity_id: !input ev1_charging_power_sensor
-  - platform: state
-    entity_id: !input ev2_charging_power_sensor
-
-  # Phasenübergänge zu definierten Uhrzeiten
+  # Phasenübergänge
   - platform: sun
     event: sunrise
     offset: "00:30:00"
@@ -576,7 +574,6 @@ action:
 
       # ------------------------------------------------------------------
       # LADEKURVE: Glockenkurve t^(1/a)
-      # Aufstieg von charge_start → peak, Abstieg von peak → charge_end
       # ------------------------------------------------------------------
       curve_factor: >
         {% set h      = current_hour %}
@@ -593,7 +590,7 @@ action:
         {% endif %}
 
       # ------------------------------------------------------------------
-      # SOC-Drosselung: lineare Reduktion zwischen Schwelle und soc_max
+      # SOC-Drosselung
       # ------------------------------------------------------------------
       soc_factor: >
         {% set s     = soc_current | float %}
@@ -608,22 +605,11 @@ action:
         {% endif %}
 
       # ------------------------------------------------------------------
-      # Verfügbarer Überschuss am Netzanschluss
-      # Basis: grid_now (positiv = echter Überschuss)
-      # Abzug Grundlast & E-Auto wenn nötig
+      # Überschuss & Ziel-Ladeleistung
       # ------------------------------------------------------------------
-      ev_deduction: "{{ ev_power_total if ev_needs_priority else 0 }}"
+      ev_deduction:      "{{ ev_power_total if ev_needs_priority else 0 }}"
+      available_surplus: "{{ [grid_now - ev_deduction, 0] | max }}"
 
-      # Primär: echter Netz-Überschuss abzüglich E-Auto-Priorität
-      # Fallback: PV - Grundlast - E-Auto (wenn kein Grid-Sensor konfiguriert)
-      available_surplus: >
-        {% set grid_surplus = grid_now - ev_deduction %}
-        {% set pv_surplus   = pv_now - _base_load - ev_deduction %}
-        {{ [grid_surplus, 0] | max }}
-
-      # ------------------------------------------------------------------
-      # Ziel-Ladeleistung (alle Faktoren kombiniert)
-      # ------------------------------------------------------------------
       target_charge_power: >
         {% set raw     = available_surplus * curve_factor * soc_factor * weather_factor %}
         {% set limited = [raw, is_max] | min %}
@@ -631,30 +617,11 @@ action:
 
       gs_value: "{{ -(target_charge_power | int) }}"
 
-      # ------------------------------------------------------------------
-      # BETRIEBSMODUS entscheiden
-      #
-      # active_charge: Alle Bedingungen für aktives Laden erfüllt
-      #   - Innerhalb Ladezeit
-      #   - Kurve > 0
-      #   - Genug Überschuss
-      #   - SOC nicht voll
-      #   - Netzanschluss zeigt Überschuss (grid_now > 0) ODER
-      #     berechnete Zielleistung > 0
-      #
-      # pid_mode: Alle anderen Situationen
-      #   - Tagsüber bei Netzbezug → PID entlädt Speicher
-      #   - Abends → PID entlädt bedarfsgerecht
-      #   - Nachts → Ruhezustand
-      #   - Neustart → sicherer Zustand
-      #   - SOC unter Reserve → kein Entladen durch uns
-      # ------------------------------------------------------------------
       operating_mode: >
         {% set in_charge_window = current_hour >= (charge_start_hour | float)
                                and current_hour < (_end_hour | float) %}
         {% set has_surplus      = target_charge_power > 0 %}
         {% set soc_ok           = soc_current < soc_max %}
-        {% set above_reserve    = soc_current > _dis_reserve_soc %}
         {% if in_charge_window and has_surplus and soc_ok %}
           active_charge
         {% else %}
@@ -668,7 +635,6 @@ action:
 
       # ════════════════════════════════════════════════════════════════════════
       # AKTIVES LADEN: MM=0, GS=negativ
-      # Wir erzwingen das Laden nach der Glockenkurve
       # ════════════════════════════════════════════════════════════════════════
       - conditions:
           - condition: template
@@ -698,9 +664,6 @@ action:
 
       # ════════════════════════════════════════════════════════════════════════
       # PID-MODUS: MM=1, GS=0
-      # Gilt für: Netzbezug tagsüber, Entladen abends, Nacht, Neustart
-      # Der interne PID regelt auf Nulleinspeisung –
-      # entlädt bei Bedarf, lädt bei Überschuss, alles automatisch
       # ════════════════════════════════════════════════════════════════════════
     default:
       - service: number.set_value

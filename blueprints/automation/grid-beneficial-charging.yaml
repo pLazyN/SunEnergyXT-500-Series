@@ -1,7 +1,7 @@
 blueprint:
   name: "SunEnergyXT – Grid-Beneficial Charging & Discharging"
   description: >
-    **Version 1.0.2**
+    **Version 1.1.0**
 
     Controls the SunEnergyXT battery storage in a grid-beneficial way using
     two operating modes:
@@ -45,7 +45,7 @@ blueprint:
               filter:
                 - integration: sunenergyxt
                   domain: sensor
-                  device_class: battery
+                  device_class: battery                     
 
         battery_gs_number:
           name: "Grid Setpoint GS (Number)"
@@ -57,7 +57,7 @@ blueprint:
               filter:
                 - integration: sunenergyxt
                   domain: number
-                  device_class: power
+                  device_class: power                   
 
         battery_is_number:
           name: "Max. Inverterleistung IS (Number)"
@@ -69,7 +69,7 @@ blueprint:
               filter:
                 - integration: sunenergyxt
                   domain: number
-                  device_class: power
+                  device_class: power                   
 
         battery_mm_switch:
           name: "Self-Consumption Modus MM (Switch)"
@@ -115,6 +115,22 @@ blueprint:
               filter:
                 - integration: sunenergyxt
                   domain: number
+
+        battery_bn_sensor:
+          name: "Anzahl Batteriemodule BN (Sensor, optional)"
+          description: >
+            Anzahl der installierten Batteriemodule (Kopfeinheit + Erweiterungen).
+            API-Feld: BN. Jedes Modul = 5 kWh Kapazität.
+            Wird zur kapazitätsbasierten Berechnung der optimalen Ladeleistung
+            und des Ladebeginns verwendet.
+            Wenn nicht gesetzt → 1 Modul (5 kWh) als Fallback.
+            Nur Sensoren der SunEnergyXT-Integration werden angezeigt.
+          default:
+          selector:
+            entity:
+              filter:
+                - integration: sunenergyxt
+                  domain: sensor
 
     # =========================================================================
     # PV & NETZ
@@ -220,6 +236,50 @@ blueprint:
               max: 60
               step: 1
               unit_of_measurement: "kWh"
+
+        sun_duration_sensor:
+          name: "Sonnenscheindauer Sensor (optional)"
+          description: >
+            Sensor mit stündlicher Sonnenscheindauer-Prognose im 'data'-Attribut
+            (Wert in Sekunden, max. 3600 pro Stunde).
+            Wird zur PV-Prognose genutzt wenn kein externer Forecast-Sensor
+            konfiguriert ist (Priorität 2).
+            Kompatibel mit allen Wetter-Integrationen die device_class: duration
+            liefern (DWD, AccuWeather, Met.no, Open-Meteo, ...).
+          default:
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: duration
+
+        pv_peak_power_kw:
+          name: "PV Anlagenleistung in kWp (optional)"
+          description: >
+            Nominale Peak-Leistung der PV-Anlage in Kilowatt-Peak.
+            Wird zusammen mit dem Sonnenscheindauer-Sensor zur Prognose-
+            berechnung genutzt. Nur relevant wenn sun_duration_sensor gesetzt.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 0.5
+              unit_of_measurement: "kWp"
+
+        pv_system_efficiency:
+          name: "PV Systemwirkungsgrad in % (optional)"
+          description: >
+            Gesamtwirkungsgrad der Anlage inkl. Wechselrichter, Leitungen und
+            ggf. leichter Verschattung. Typisch: 75–85%.
+            Standard: 80%
+          default: 80
+          selector:
+            number:
+              min: 50
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
 
     # =========================================================================
     # WETTER
@@ -406,14 +466,35 @@ blueprint:
 
         update_interval_minutes:
           name: "Aktualisierungsintervall (Minuten)"
-          description: "Wie oft die Ladeleistung neu berechnet wird."
-          default: 5
+          description: >
+            Maximales Intervall zwischen zwei Neuberechnungen.
+            Zusätzlich reagiert der Blueprint sofort auf Änderungen am
+            Netzanschluss (Grid-Sensor Schwellwert-Trigger).
+            Standard: 2 Minuten – empfohlen für kleine Anlagen / Speicher.
+          default: 2
           selector:
             number:
               min: 1
               max: 30
               step: 1
               unit_of_measurement: "min"
+
+        grid_trigger_threshold:
+          name: "Grid-Trigger Schwellwert (Watt)"
+          description: >
+            Der Blueprint berechnet sofort neu wenn die Netzleistung diesen
+            Wert über- oder unterschreitet – ohne auf den Timer zu warten.
+            Oberhalb: Überschuss verfügbar → Laden starten/erhöhen.
+            Unterhalb: Überschuss weg → Laden stoppen/reduzieren.
+            Kleiner Wert = reaktiver (empfohlen für kleine Anlagen).
+            Standard: 100W
+          default: 100
+          selector:
+            number:
+              min: 50
+              max: 500
+              step: 50
+              unit_of_measurement: "W"
 
     # =========================================================================
     # NACHT-RESERVE
@@ -472,14 +553,30 @@ variables:
   _aggressiveness:    !input curve_aggressiveness
   _soc_throttle:      !input soc_throttle_threshold
   _dis_reserve_soc:   !input discharge_reserve_soc
+  _bn_sensor:         !input battery_bn_sensor
+  _grid_trigger:      !input grid_trigger_threshold
+  _sun_duration:      !input sun_duration_sensor
+  _pv_peak_kw:        !input pv_peak_power_kw
+  _pv_efficiency:     !input pv_system_efficiency
 
 # =============================================================================
 # TRIGGER
 # =============================================================================
 trigger:
-  # Regelmäßige Neuberechnung
+  # Regelmäßige Neuberechnung (Fallback / Maximalintervall)
   - platform: time_pattern
     minutes: !input update_interval_minutes
+
+  # Ereignisbasiert: sofortige Reaktion auf Überschuss-Änderungen
+  # Überschuss steigt über Schwellwert → Laden starten/erhöhen
+  - platform: numeric_state
+    entity_id: !input grid_power_sensor
+    above: !input grid_trigger_threshold
+
+  # Überschuss fällt unter Schwellwert → Laden stoppen/reduzieren
+  - platform: numeric_state
+    entity_id: !input grid_power_sensor
+    below: !input grid_trigger_threshold
 
   # Phasenübergänge
   - platform: sun
@@ -517,6 +614,29 @@ action:
         {% endif %}
       soc_current:  "{{ states(_soc_sensor) | float(0) }}"
 
+      # ------------------------------------------------------------------
+      # KAPAZITÄT: BN × 5 kWh pro Modul
+      # Bestimmt optimale Ladeleistung und kapazitätsbasierte Anpassungen
+      # ------------------------------------------------------------------
+      battery_modules: >
+        {% if _bn_sensor and states(_bn_sensor) not in ['unknown','unavailable'] %}
+          {{ states(_bn_sensor) | int(1) }}
+        {% else %}
+          1
+        {% endif %}
+      battery_capacity_kwh: "{{ battery_modules * 5.0 }}"
+
+      # Ladezeit-Fenster in Stunden (Peak als Scheitelpunkt)
+      charge_window_hours: "{{ [(_end_hour | float) - (_start_good | float), 1] | max }}"
+
+      # Kapazitätsbasierte Mindest-Ladeleistung:
+      # Wie viel W brauchen wir im Schnitt um den Speicher im Fenster zu füllen?
+      # (nur informativer Richtwert – eigentliche Begrenzung via Kurve + Überschuss)
+      capacity_based_min_power: >
+        {% set empty_kwh = battery_capacity_kwh * (1 - soc_current / 100.0) %}
+        {% set needed_w  = (empty_kwh * 1000.0) / charge_window_hours %}
+        {{ needed_w | round(0) | int }}
+
       # Hardware-Limit
       is_max: "{{ states(_is_number) | float(800) }}"
 
@@ -548,10 +668,29 @@ action:
 
       # Solar-Prognose
       forecast_today_kwh: >
-        {% set f1 = states(_fc1) | float(0) if _fc1 else 0 %}
-        {% set f2 = states(_fc2) | float(0) if _fc2 else 0 %}
-        {% set f3 = states(_fc3) | float(0) if _fc3 else 0 %}
-        {{ f1 + f2 + f3 }}
+        {# Priorität 1: Externer Forecast-Sensor (Forecast.Solar, Solcast etc.) #}
+        {% if _fc1 and states(_fc1) not in ['unknown','unavailable'] %}
+          {% set f1 = states(_fc1) | float(0) %}
+          {% set f2 = states(_fc2) | float(0) if _fc2 else 0 %}
+          {% set f3 = states(_fc3) | float(0) if _fc3 else 0 %}
+          {{ f1 + f2 + f3 }}
+
+        {# Priorität 2: Sonnenscheindauer-Sensor + Anlagendaten #}
+        {% elif _sun_duration and _pv_peak_kw | float(0) > 0
+             and state_attr(_sun_duration, 'data') is not none %}
+          {% set data = state_attr(_sun_duration, 'data') %}
+          {% set eff  = _pv_efficiency | float(80) / 100.0 %}
+          {% set peak = _pv_peak_kw | float(0) %}
+          {% set ns   = namespace(total=0.0) %}
+          {% for entry in data %}
+            {% set ns.total = ns.total + (entry.value | float(0) / 3600.0 * peak * eff) %}
+          {% endfor %}
+          {{ ns.total | round(2) }}
+
+        {# Priorität 3: Kein Forecast → 0 (konservativer Fallback) #}
+        {% else %}
+          0
+        {% endif %}
 
       forecast_is_good:   "{{ forecast_today_kwh >= _fc_good_thresh }}"
       charge_start_hour:  "{{ _start_good if forecast_is_good else _start_poor }}"
@@ -657,6 +796,8 @@ action:
                 [SunEnergyXT] AKTIVES LADEN |
                 {{ now().strftime('%H:%M') }} |
                 SOC: {{ soc_current }}% / max: {{ soc_max }}% |
+                Kapazität: {{ battery_capacity_kwh }}kWh ({{ battery_modules }}×5kWh) |
+                Noch zu laden: {{ capacity_based_min_power }}W Ø nötig |
                 PV: {{ pv_now }}W | Grid: {{ grid_now }}W |
                 EV: {{ ev_power_total }}W (Prio: {{ ev_needs_priority }}) |
                 Prognose: {{ forecast_today_kwh }}kWh |

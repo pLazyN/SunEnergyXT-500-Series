@@ -1,7 +1,7 @@
 blueprint:
   name: "SunEnergyXT – Grid-Beneficial Charging & Discharging"
   description: >
-    **Version 1.2.0**
+    **Version 1.3.1**
 
     Controls the SunEnergyXT battery storage in a grid-beneficial way using
     two operating modes:
@@ -188,6 +188,22 @@ blueprint:
             number:
               min: 0
               max: 1000
+              step: 50
+              unit_of_measurement: "W"
+
+        pv_start_threshold:
+          name: "PV Mindestleistung für Standby-Modus (Watt)"
+          description: >
+            Sobald die PV-Anlage diese Leistung überschreitet, setzt der
+            Blueprint MM=0 und GS=0 (Standby-Modus) – auch vor der
+            konfigurierten Ladezeit. Das verhindert dass der interne PID
+            unkontrolliert mit voller Leistung lädt bevor die Glockenkurve
+            aktiv wird. Standard: 100W
+          default: 100
+          selector:
+            number:
+              min: 50
+              max: 500
               step: 50
               unit_of_measurement: "W"
 
@@ -540,6 +556,7 @@ variables:
   _dis_reserve_soc:   !input discharge_reserve_soc
   _bn_sensor:         !input battery_bn_sensor
   _grid_trigger:      !input grid_trigger_threshold
+  _pv_start_thresh:   !input pv_start_threshold
   _sun_duration:      !input sun_duration_sensor
   _pv_peak_kw:        !input pv_peak_power_kw
   _pv_efficiency:     !input pv_system_efficiency
@@ -562,6 +579,11 @@ trigger:
   - platform: numeric_state
     entity_id: !input grid_power_sensor
     below: !input grid_trigger_threshold
+
+  # PV-Start: sobald Anlage produziert → Standby-Modus aktivieren
+  - platform: numeric_state
+    entity_id: !input pv_power_sensor
+    above: !input pv_start_threshold
 
   # Phasenübergänge
   - platform: sun
@@ -717,7 +739,7 @@ action:
         {% if h < t_s or h >= t_e %}
           0.0
         {% elif h <= t_p %}
-          {{ ((h - t_s) / (t_p - t_s)) ** a | round(4) }}
+          {{ (((h - t_s) / (t_p - t_s)) ** a) | round(4) }}
         {% else %}
           1.0
         {% endif %}
@@ -753,10 +775,15 @@ action:
       operating_mode: >
         {% set in_charge_window = current_hour >= (charge_start_hour | float)
                                and current_hour < (_end_hour | float) %}
+        {% set before_charge    = current_hour < (charge_start_hour | float) %}
         {% set has_surplus      = target_charge_power > 0 %}
         {% set soc_ok           = soc_current < soc_max %}
+        {% set pv_active        = pv_now >= (_pv_start_thresh | float(100)) %}
+
         {% if in_charge_window and has_surplus and soc_ok %}
           active_charge
+        {% elif before_charge and pv_active and soc_ok %}
+          standby
         {% else %}
           pid_mode
         {% endif %}
@@ -798,6 +825,35 @@ action:
               level: debug
 
       # ════════════════════════════════════════════════════════════════════════
+      # STANDBY: MM=0, GS=0
+      # PV produziert bereits, aber Ladezeit noch nicht erreicht.
+      # Blueprint übernimmt Kontrolle (MM=0) ohne zu laden (GS=0).
+      # Verhindert unkontrolliertes Laden durch den internen PID.
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: template
+            value_template: "{{ operating_mode == 'standby' }}"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input battery_mm_switch
+          - service: number.set_value
+            target:
+              entity_id: !input battery_gs_number
+            data:
+              value: 0
+          - service: system_log.write
+            data:
+              message: >
+                [SunEnergyXT] STANDBY (MM=0, GS=0) |
+                {{ now().strftime('%H:%M') }} |
+                SOC: {{ soc_current }}% |
+                PV: {{ pv_now }}W | Grid: {{ grid_now }}W |
+                Warte auf Ladezeit ({{ charge_start_hour }}:00 Uhr)
+              level: warning
+              logger: custom_components.sunenergyxt.blueprint
+
+      # ════════════════════════════════════════════════════════════════════════
       # PID-MODUS: MM=1, GS=0
       # ════════════════════════════════════════════════════════════════════════
     default:
@@ -816,7 +872,7 @@ action:
             {{ now().strftime('%H:%M') }} |
             SOC: {{ soc_current }}% |
             PV: {{ pv_now }}W | Grid: {{ grid_now }}W |
-            Grund: {% if current_hour < (charge_start_hour | float) %}vor Ladezeit
+            Grund: {% if current_hour < (charge_start_hour | float) and pv_now < (_pv_start_thresh | float(100)) %}vor Ladezeit (PV noch zu schwach)
             {%- elif current_hour >= (_end_hour | float) %}nach Ladezeit
             {%- elif soc_current >= soc_max %}Speicher voll
             {%- elif target_charge_power == 0 %}kein Überschuss / kein Bedarf

@@ -1,7 +1,7 @@
 blueprint:
   name: "SunEnergyXT – Grid-Beneficial Charging & Discharging"
   description: >
-    **Version 1.4.0**
+    **Version 1.4.1**
 
     Controls the SunEnergyXT battery storage in a grid-beneficial way using
     two operating modes:
@@ -828,6 +828,7 @@ action:
                 Kurve: {{ curve_factor }} | SOC-Faktor: {{ soc_factor }} |
                 Überschuss: {{ available_surplus }}W | PV-Cap: {{ pv_surplus_cap }}W → GS: {{ gs_value }}W
               level: debug
+              logger: custom_components.sunenergyxt.blueprint
 
       # ════════════════════════════════════════════════════════════════════════
       # STANDBY: MM=1, GS=0
@@ -883,6 +884,7 @@ action:
             {%- elif target_charge_power == 0 %}kein Überschuss / kein Bedarf
             {%- else %}sonstige Bedingung{% endif %}
           level: debug
+          logger: custom_components.sunenergyxt.blueprint
 
 mode: single
 max_exceeded: silent

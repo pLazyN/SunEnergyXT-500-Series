@@ -324,18 +324,21 @@ variables:
   soll_einspeisen: >
     {{ ([0, (ziel_val - netz)] | max) | round(0) | int }}
 
-  # ── Fehler und gedämpfte Schrittgröße ────────────────────────────────────────
-  # Fehler = Differenz zwischen Vollkorrektur-Sollwert und aktuellem GS
-  # Vorzeichen: positiv = GS muss erhöht werden, negativ = GS muss gesenkt werden
-  gs_fehler: >
+  # ── Ziel-GS und gedämpfte Schrittregelung ───────────────────────────────────
+  # Ziel-GS: wohin soll GS letztendlich (Vollkorrektur ohne Schrittbegrenzung)
+  # Laden → negativ, Einspeisen → positiv, Idle → 0
+  ziel_gs: >
     {% if soll_laden > 0 %}
-      {{ (soll_laden * -1) - gs_aktuell }}
+      {{ (soll_laden * -1) | int }}
     {% elif soll_einspeisen > 0 %}
-      {{ soll_einspeisen - gs_aktuell }}
+      {{ soll_einspeisen | int }}
     {% else %}
-      {{ 0 - gs_aktuell }}
+      0
     {% endif %}
-  fehler_betrag: "{{ gs_fehler | abs | round(0) | int }}"
+
+  # Fehler = wie weit ist GS noch vom Ziel entfernt
+  gs_fehler:    "{{ (ziel_gs - gs_aktuell) | round(0) | int }}"
+  fehler_betrag: "{{ gs_fehler | abs | int }}"
 
   # Schrittgröße je nach Fehlerbetrag (klein / mittel / groß)
   max_schritt: >
@@ -347,12 +350,12 @@ variables:
       {{ schritt_klein_val }}
     {% endif %}
 
-  # Begrenzter Schritt: Vorzeichen des Fehlers × min(|Fehler|, max_schritt)
+  # Begrenzter Schritt in Richtung Ziel
   begrenzter_schritt: >
     {% if gs_fehler > 0 %}
-      {{ [gs_fehler, max_schritt] | min | round(0) | int }}
+      {{ [gs_fehler, max_schritt] | min | int }}
     {% else %}
-      {{ ([gs_fehler, max_schritt * -1] | max) | round(0) | int }}
+      {{ ([gs_fehler, max_schritt * -1] | max) | int }}
     {% endif %}
 
   # Nächster GS-Wert = aktueller GS + begrenzter Schritt

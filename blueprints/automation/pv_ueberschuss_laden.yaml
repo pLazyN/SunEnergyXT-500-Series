@@ -9,17 +9,6 @@
 #   3. Einstellungen → Automationen → Automation erstellen →
 #      "Aus Blueprint erstellen" → dieses Blueprint wählen
 #
-# VORAUSSETZUNG – Helper anlegen (einmalig, vor dem ersten Einsatz):
-#   Einstellungen → Geräte & Dienste → Helfer → "+ Helfer anlegen"
-#   → Typ: Zahl
-#     Name:     PV Überschuss verfügbar
-#     Symbol:   mdi:solar-power
-#     Min:      0   Max: 10000   Schritt: 10   Einheit: W
-#   Der erzeugte Entity-ID lautet üblicherweise:
-#   input_number.pv_uberschuss_verfugbar
-#   → diesen im Blueprint-Dialog als "Überschuss-Helper" eintragen.
-#   Andere Automationen können diesen Helper dann als Trigger nutzen.
-#
 # =============================================================================
 
 blueprint:
@@ -36,13 +25,9 @@ blueprint:
     als Ladeleistung angesetzt (Standard 50 %). Beide Modelle laden bis 2400 W;
     die Einspeise-/Entladeleistung ist beim 500 auf 800 W, beim 500 Pro auf 2400 W begrenzt.
 
-    **Überschuss-Helper:** Ein `input_number`-Helper wird von dieser Automation
-    mit dem aktuellen Überschusswert befüllt – andere Automationen
-    (z.B. Pumpe, Warmwasser) können ihn als Trigger verwenden.
-
-    **Einspeisen:** Der Speicher hält einen konfigurierbaren Ziel-Netzwert
-    (Standard 80 W Einspeisung). Fällt die Einspeisung darunter, entlädt der
-    Speicher automatisch nach. Beim PV-Laden hat der Überschuss Vorrang.
+    **Ziel-Einspeisung:** Der Speicher entlädt so viel, dass immer ein
+    konfigurierbarer Mindestwert ins Netz eingespeist wird (Standard 80 W).
+    Beim PV-Laden hat der Überschuss Vorrang.
 
     Aktualisierung alle 10 Sekunden (= typische Updaterate Tuya PJ-1203A).
   domain: automation
@@ -80,7 +65,7 @@ blueprint:
         speicher_gs:
           name: "GS – Sollwert Netzanschluss (number)"
           description: >
-            Steuert die Lade-/Entladeleistung. **Negativ = Laden.**
+            Steuert die Lade-/Entladeleistung. **Negativ = Laden, Positiv = Einspeisen.**
             API-Feld: GS. (z.B. number.SunEnergyXT500_gs)
           selector:
             entity:
@@ -115,7 +100,7 @@ blueprint:
       input:
 
         schwelle_ein:
-          name: "Einschaltschwelle (W)"
+          name: "Einschaltschwelle Laden (W)"
           description: >
             Mindesteinspeisung ins Netz, ab der der Ladevorgang startet.
             Empfehlung: 150–300 W.
@@ -129,16 +114,31 @@ blueprint:
               mode: slider
 
         schwelle_aus:
-          name: "Ausschaltschwelle (W)"
+          name: "Ausschaltschwelle Laden (W)"
           description: >
             Fällt die Einspeisung unter diesen Wert, wird das Laden gestoppt.
             Sollte kleiner als die Einschaltschwelle sein (Hysterese).
-            Empfehlung: 100–200 W.
           default: 150
           selector:
             number:
               min: 0
               max: 1000
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+        ziel_einspeisung:
+          name: "Ziel-Einspeisung (W)"
+          description: >
+            Angestrebter Netzwert in Watt. Der Speicher entlädt so viel, dass
+            dieser Wert am Netzanschluss gehalten wird.
+            0 W = Nulleinspeisung, 50–100 W = leichte Dauereinspeisung empfohlen.
+            Beim Laden hat PV-Überschuss Vorrang.
+          default: 80
+          selector:
+            number:
+              min: -200
+              max: 500
               step: 10
               unit_of_measurement: W
               mode: slider
@@ -187,47 +187,6 @@ blueprint:
               unit_of_measurement: W
               mode: slider
 
-        ziel_einspeisung:
-          name: "Ziel-Einspeisung (W)"
-          description: >
-            Angestrebter Netzwert in Watt. Der Speicher entlädt so viel, dass
-            dieser Wert am Netzanschluss erreicht wird.
-            0 W = Nulleinspeisung, 50–100 W = leichte Dauereinspeisung empfohlen.
-            Beim Laden hat PV-Überschuss Vorrang – der Zielwert wird dann
-            durch den Überschuss selbst erreicht oder überschritten.
-          default: 80
-          selector:
-            number:
-              min: -200
-              max: 500
-              step: 10
-              unit_of_measurement: W
-              mode: slider
-
-    # ── Überschuss-Helper ─────────────────────────────────────────────────────
-    section_helper:
-      name: "📤 Überschuss-Helper (optional, für weitere Verbraucher)"
-      icon: mdi:export
-      collapsed: true
-      input:
-
-        ueberschuss_helper:
-          name: "input_number – PV Überschuss verfügbar (optional)"
-          description: >
-            **Optional.** Ein `input_number`-Helper, den diese Automation mit
-            dem aktuellen Netto-Überschuss (in W) befüllt. Andere Automationen
-            können ihn als Trigger nutzen (z.B. Pumpe einschalten wenn > 300 W).
-
-            Leer lassen wenn nicht benötigt.
-
-            Falls gewünscht vorher anlegen:
-            Einstellungen → Helfer → Zahl → Min: 0, Max: 10000, Einheit: W.
-          default: ""
-          selector:
-            entity:
-              domain: input_number
-
-
 # =============================================================================
 # AUTOMATION
 # =============================================================================
@@ -236,51 +195,30 @@ trigger:
     seconds: "/10"
 
 variables:
-  netz:               "{{ states(netz_sensor)  | float(0) }}"
-  soc:                "{{ states(speicher_soc) | float(0) }}"
-  gs_aktuell:         "{{ states(speicher_gs)  | float(0) }}"
-  drosselung:         "{{ drosselung_pct / 100 }}"
-  laden_aktiv:        "{{ gs_aktuell < 0 }}"
-  schwelle:           "{{ schwelle_aus if laden_aktiv else schwelle_ein }}"
-  ueberschuss:        "{{ [netz, 0] | max | round(0) | int }}"
-  # !input als Variable auflösen – so kann der Wert im Template geprüft werden
-  ueberschuss_helper: !input ueberschuss_helper
+  netz:            "{{ states(netz_sensor)  | float(0) }}"
+  soc:             "{{ states(speicher_soc) | float(0) }}"
+  gs_aktuell:      "{{ states(speicher_gs)  | float(0) }}"
+  drosselung:      "{{ drosselung_pct / 100 }}"
+  laden_aktiv:     "{{ gs_aktuell < 0 }}"
+  schwelle:        "{{ schwelle_aus if laden_aktiv else schwelle_ein }}"
   soll_laden: >
     {% if netz > schwelle %}
       {{ [((netz * drosselung) | round(0) | int), max_ladeleistung] | min }}
     {% else %}
       0
     {% endif %}
-  # Abweichung vom Zielwert (positiv = wir speisen zu wenig / beziehen zu viel)
-  # soll_einspeisen: aktueller GS-Sollwert für Entladen (positiv = Entladen)
-  # Berechnung: was fehlt bis zum Zielwert + was wir schon entladen
   soll_einspeisen: >
     {{ ([0, (ziel_einspeisung - netz + (gs_aktuell | float(0))) ] | max) | round(0) | int }}
-  entladen_aktiv: "{{ gs_aktuell > 0 }}"
 
 condition:
-  # Nur agieren wenn Netzsensor einen gültigen Wert liefert
   - condition: template
     value_template: >
       {{ states(netz_sensor) not in ['unavailable', 'unknown', 'none'] }}
 
 action:
-
-  # ── Helper aktuell halten (nur wenn konfiguriert) ──────────────────────────
-  # !input kann nicht in einem optionalen target verwendet werden – daher wird
-  # die Entity-ID als Template-String übergeben. HA überspringt den Service-Call
-  # automatisch wenn entity_id leer ist.
-  - action: input_number.set_value
-    target:
-      entity_id: >-
-        {{ iif((ueberschuss_helper | default('')) != '', ueberschuss_helper, none) }}
-    data:
-      value: "{{ ueberschuss }}"
-
   - choose:
 
       # ── FALL 1: Ladevorgang STOPPEN ──────────────────────────────────────────
-      # Einspeisung unter Ausschaltschwelle UND Speicher lädt gerade
       - conditions:
           - condition: template
             value_template: "{{ netz < schwelle_aus and laden_aktiv }}"
@@ -298,7 +236,6 @@ action:
                 unter Ausschaltschwelle {{ schwelle_aus }} W (SOC {{ soc }}%)
 
       # ── FALL 2: Laden STARTEN oder ANPASSEN ──────────────────────────────────
-      # Überschuss ausreichend UND Sollwert weicht mehr als dead_band ab
       - conditions:
           - condition: template
             value_template: >
@@ -314,12 +251,10 @@ action:
             data:
               name: "PV Überschussladen"
               message: >
-                Ladeleistung → {{ soll_laden }} W
+                Laden → {{ soll_laden }} W
                 (Einspeisung {{ netz | round(0) }} W, SOC {{ soc }}%)
 
-      # ── FALL 3: Einspeisen STARTEN oder ANPASSEN ───────────────────────────────
-      # Netz weicht vom Zielwert ab → GS anpassen um Ziel-Einspeisung zu erreichen.
-      # Greift auch ohne Netzbezug, sobald die Einspeisung unter den Zielwert fällt.
+      # ── FALL 3: Einspeisen STARTEN oder ANPASSEN ─────────────────────────────
       - conditions:
           - condition: template
             value_template: >
@@ -340,7 +275,6 @@ action:
                 SOC {{ soc }}%)
 
       # ── FALL 4: Kein Handlungsbedarf ─────────────────────────────────────────
-      # Änderung < dead_band, kein Überschuss, kein Bezug → nichts tun
 
 mode: single
 max_exceeded: silent

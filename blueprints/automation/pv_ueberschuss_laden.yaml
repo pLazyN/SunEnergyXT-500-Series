@@ -231,8 +231,8 @@ blueprint:
 # =============================================================================
 # AUTOMATION
 # =============================================================================
-triggers:
-  - trigger: time_pattern
+trigger:
+  - platform: time_pattern
     seconds: "/10"
 
 variables:
@@ -258,13 +258,13 @@ variables:
     {{ ([0, (ziel_einspeisung - netz + (gs_aktuell | float(0))) ] | max) | round(0) | int }}
   entladen_aktiv: "{{ gs_aktuell > 0 }}"
 
-conditions:
+condition:
   # Nur agieren wenn Netzsensor einen gültigen Wert liefert
   - condition: template
     value_template: >
       {{ states(netz_sensor) not in ['unavailable', 'unknown', 'none'] }}
 
-actions:
+action:
 
   # ── Helper aktuell halten (nur wenn konfiguriert) ──────────────────────────
   # !input kann nicht in einem optionalen target verwendet werden – daher wird

@@ -235,15 +235,16 @@ conditions:
 actions:
 
   # ── Helper aktuell halten (nur wenn konfiguriert) ──────────────────────────
-  - if:
-      - condition: template
-        value_template: "{{ ueberschuss_helper | default('') != '' }}"
-    then:
-      - action: input_number.set_value
-        target:
-          entity_id: !input ueberschuss_helper
-        data:
-          value: "{{ ueberschuss }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ ueberschuss_helper | default('') != '' }}"
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: !input ueberschuss_helper
+            data:
+              value: "{{ ueberschuss }}"
 
   - choose:
 

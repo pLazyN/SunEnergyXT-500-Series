@@ -1,0 +1,292 @@
+# =============================================================================
+# Blueprint: PV-Überschussladen – SunEnergyXT 500 + Netzsensor
+# =============================================================================
+#
+# INSTALLATION:
+#   1. Diese Datei nach config/blueprints/automation/ kopieren
+#      (Ordner ggf. anlegen)
+#   2. HA neu starten oder Blueprints neu laden
+#   3. Einstellungen → Automationen → Automation erstellen →
+#      "Aus Blueprint erstellen" → dieses Blueprint wählen
+#
+# VORAUSSETZUNG – Helper anlegen (einmalig, vor dem ersten Einsatz):
+#   Einstellungen → Geräte & Dienste → Helfer → "+ Helfer anlegen"
+#   → Typ: Zahl
+#     Name:     PV Überschuss verfügbar
+#     Symbol:   mdi:solar-power
+#     Min:      0   Max: 10000   Schritt: 10   Einheit: W
+#   Der erzeugte Entity-ID lautet üblicherweise:
+#   input_number.pv_uberschuss_verfugbar
+#   → diesen im Blueprint-Dialog als "Überschuss-Helper" eintragen.
+#   Andere Automationen können diesen Helper dann als Trigger nutzen.
+#
+# =============================================================================
+
+blueprint:
+  name: "PV-Überschussladen – SunEnergyXT 500"
+  description: >
+    Regelt die Ladeleistung eines SunEnergyXT 500 Batteriespeichers anhand
+    eines Netzsensors (z.B. Tuya PJ-1203A).
+
+    **Vorzeichenkonvention Netzsensor:** positiv = Einspeisung, negativ = Bezug.
+
+    **Hysterese:** Einschalten ab `schwelle_ein`, Ausschalten unter `schwelle_aus`.
+
+    **Schonladen:** Nur ein konfigurierbarer Prozentsatz des Überschusses wird
+    als Ladeleistung angesetzt (Standard 50 %).
+
+    **Überschuss-Helper:** Ein `input_number`-Helper wird von dieser Automation
+    mit dem aktuellen Überschusswert befüllt – andere Automationen
+    (z.B. Pumpe, Warmwasser) können ihn als Trigger verwenden.
+
+    Aktualisierung alle 10 Sekunden (= typische Updaterate Tuya PJ-1203A).
+  domain: automation
+  author: "pLazyN"
+  homeassistant:
+    min_version: "2024.6.0"
+
+  input:
+
+    # ── Netzmessung ───────────────────────────────────────────────────────────
+    section_netz:
+      name: "🔌 Netzmessung"
+      icon: mdi:transmission-tower
+      collapsed: false
+      input:
+
+        netz_sensor:
+          name: "Netzsensor (Leistung in W)"
+          description: >
+            Sensor, der den aktuellen Netzaustausch in Watt liefert.
+            **Positiv = Einspeisung, negativ = Bezug.**
+            (Tuya PJ-1203A oder ähnlich)
+          selector:
+            entity:
+              domain: sensor
+              device_class: power
+
+    # ── SunEnergyXT Speicher ──────────────────────────────────────────────────
+    section_speicher:
+      name: "🔋 Speicher (SunEnergyXT 500)"
+      icon: mdi:battery-charging
+      collapsed: false
+      input:
+
+        speicher_gs:
+          name: "GS – Sollwert Netzanschluss (number)"
+          description: >
+            Steuert die Lade-/Entladeleistung. **Negativ = Laden.**
+            API-Feld: GS. (z.B. number.SunEnergyXT500_gs)
+          selector:
+            entity:
+              domain: number
+              device_class: power
+
+        speicher_soc:
+          name: "SC – Ladestand SOC (sensor)"
+          description: >
+            Aktueller Speicherladestand in Prozent.
+            API-Feld: SC. (z.B. sensor.SunEnergyXT500_sc)
+          selector:
+            entity:
+              domain: sensor
+              device_class: battery
+
+        speicher_pb:
+          name: "PB – Aktuelle Batterieleistung (sensor)"
+          description: >
+            Aktuelle Lade-/Entladeleistung des Speichers in Watt.
+            API-Feld: PB. (z.B. sensor.SunEnergyXT500_pb)
+          selector:
+            entity:
+              domain: sensor
+              device_class: power
+
+    # ── Schwellwerte & Regelparameter ─────────────────────────────────────────
+    section_schwellen:
+      name: "⚙️ Schwellwerte & Regelparameter"
+      icon: mdi:tune
+      collapsed: false
+      input:
+
+        schwelle_ein:
+          name: "Einschaltschwelle (W)"
+          description: >
+            Mindesteinspeisung ins Netz, ab der der Ladevorgang startet.
+            Empfehlung: 150–300 W.
+          default: 200
+          selector:
+            number:
+              min: 50
+              max: 2000
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+        schwelle_aus:
+          name: "Ausschaltschwelle (W)"
+          description: >
+            Fällt die Einspeisung unter diesen Wert, wird das Laden gestoppt.
+            Sollte kleiner als die Einschaltschwelle sein (Hysterese).
+            Empfehlung: 100–200 W.
+          default: 150
+          selector:
+            number:
+              min: 0
+              max: 1000
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+        max_ladeleistung:
+          name: "Maximale Ladeleistung (W)"
+          description: >
+            Hardwareobergrenze des Speichers. SunEnergyXT 500 (non-Pro): 800 W.
+          default: 800
+          selector:
+            number:
+              min: 100
+              max: 2400
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+        drosselung_pct:
+          name: "Schonlade-Drosselung (%)"
+          description: >
+            Anteil des verfügbaren Überschusses, der als Ladeleistung
+            angesetzt wird. 50 % = schonend, 100 % = voller Überschuss.
+          default: 50
+          selector:
+            number:
+              min: 10
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+        dead_band:
+          name: "Dead Band (W)"
+          description: >
+            Minimale Abweichung zwischen Soll- und Ist-Ladeleistung,
+            ab der ein neuer Schreibbefehl gesendet wird.
+            Verhindert unnötige API-Calls bei kleinen Schwankungen.
+          default: 30
+          selector:
+            number:
+              min: 10
+              max: 200
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+    # ── Überschuss-Helper ─────────────────────────────────────────────────────
+    section_helper:
+      name: "📤 Überschuss-Helper (optional, für weitere Verbraucher)"
+      icon: mdi:export
+      collapsed: true
+      input:
+
+        ueberschuss_helper:
+          name: "input_number – PV Überschuss verfügbar (optional)"
+          description: >
+            **Optional.** Ein `input_number`-Helper, den diese Automation mit
+            dem aktuellen Netto-Überschuss (in W) befüllt. Andere Automationen
+            können ihn als Trigger nutzen (z.B. Pumpe einschalten wenn > 300 W).
+
+            Leer lassen wenn nicht benötigt.
+
+            Falls gewünscht vorher anlegen:
+            Einstellungen → Helfer → Zahl → Min: 0, Max: 10000, Einheit: W.
+          default: ""
+          selector:
+            entity:
+              domain: input_number
+
+
+# =============================================================================
+# AUTOMATION
+# =============================================================================
+triggers:
+  - trigger: time_pattern
+    seconds: "/10"
+
+variables:
+  netz:          "{{ states(netz_sensor)  | float(0) }}"
+  soc:           "{{ states(speicher_soc) | float(0) }}"
+  gs_aktuell:    "{{ states(speicher_gs)  | float(0) }}"
+  drosselung:    "{{ drosselung_pct / 100 }}"
+  laden_aktiv:   "{{ gs_aktuell < 0 }}"
+  schwelle:      "{{ schwelle_aus if laden_aktiv else schwelle_ein }}"
+  ueberschuss:   "{{ [netz, 0] | max | round(0) | int }}"
+  soll_laden: >
+    {% if netz > schwelle %}
+      {{ [((netz * drosselung) | round(0) | int), max_ladeleistung] | min }}
+    {% else %}
+      0
+    {% endif %}
+
+conditions:
+  # Nur agieren wenn Netzsensor einen gültigen Wert liefert
+  - condition: template
+    value_template: >
+      {{ states(netz_sensor) not in ['unavailable', 'unknown', 'none'] }}
+
+actions:
+
+  # ── Helper aktuell halten (nur wenn konfiguriert) ──────────────────────────
+  - if:
+      - condition: template
+        value_template: "{{ ueberschuss_helper | default('') != '' }}"
+    then:
+      - action: input_number.set_value
+        target:
+          entity_id: !input ueberschuss_helper
+        data:
+          value: "{{ ueberschuss }}"
+
+  - choose:
+
+      # ── FALL 1: Ladevorgang STOPPEN ──────────────────────────────────────────
+      # Einspeisung unter Ausschaltschwelle UND Speicher lädt gerade
+      - conditions:
+          - condition: template
+            value_template: "{{ netz < schwelle_aus and laden_aktiv }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: !input speicher_gs
+            data:
+              value: "0"
+          - action: logbook.log
+            data:
+              name: "PV Überschussladen"
+              message: >
+                Laden gestoppt – Einspeisung {{ netz | round(0) }} W
+                unter Ausschaltschwelle {{ schwelle_aus }} W (SOC {{ soc }}%)
+
+      # ── FALL 2: Laden STARTEN oder ANPASSEN ──────────────────────────────────
+      # Überschuss ausreichend UND Sollwert weicht mehr als dead_band ab
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ soll_laden > 0
+                 and ((soll_laden - (gs_aktuell | abs)) | abs) > dead_band }}
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: !input speicher_gs
+            data:
+              value: "{{ (soll_laden * -1) | int }}"
+          - action: logbook.log
+            data:
+              name: "PV Überschussladen"
+              message: >
+                Ladeleistung → {{ soll_laden }} W
+                (Einspeisung {{ netz | round(0) }} W, SOC {{ soc }}%)
+
+      # ── FALL 3: Kein Handlungsbedarf ─────────────────────────────────────────
+      # Änderung < dead_band oder kein Überschuss und Speicher steht bereits → nichts tun
+
+mode: single
+max_exceeded: silent

@@ -29,7 +29,11 @@ blueprint:
     konfigurierbarer Mindestwert ins Netz eingespeist wird (Standard 80 W).
     Beim PV-Laden hat der Überschuss Vorrang.
 
-    Aktualisierung alle 10 Sekunden (= typische Updaterate Tuya PJ-1203A).
+    **Gedämpfte Schrittregelung:** Bei kleinem Fehler werden nur kleine Schritte
+    gesetzt, bei großem Fehler größere – verhindert Schwingen. Nach jedem
+    Schreibvorgang wird gewartet bis ein neuer Messwert vorliegt.
+
+    Trigger alle 10 Sekunden (= typische Updaterate Tuya PJ-1203A).
   domain: automation
   author: "pLazyN"
   homeassistant:
@@ -171,19 +175,96 @@ blueprint:
               unit_of_measurement: "%"
               mode: slider
 
-        dead_band:
-          name: "Dead Band (W)"
+    # ── Dämpfungs- und Schrittparameter ──────────────────────────────────────
+    section_daempfung:
+      name: "🎚️ Dämpfung & Schrittregelung"
+      icon: mdi:sine-wave
+      collapsed: true
+      input:
+
+        fehler_klein:
+          name: "Schwelle kleiner Fehler (W)"
           description: >
-            Minimale Abweichung zwischen Soll- und Ist-Ladeleistung,
-            ab der ein neuer Schreibbefehl gesendet wird.
-            Verhindert unnötige API-Calls bei kleinen Schwankungen.
-          default: 30
+            Abweichungen unter diesem Wert gelten als klein → kleinster Schritt.
+            Empfehlung: 30–50 W.
+          default: 40
           selector:
             number:
               min: 10
               max: 200
               step: 10
               unit_of_measurement: W
+              mode: slider
+
+        fehler_gross:
+          name: "Schwelle großer Fehler (W)"
+          description: >
+            Abweichungen über diesem Wert gelten als groß → größter Schritt.
+            Empfehlung: 150–300 W.
+          default: 200
+          selector:
+            number:
+              min: 50
+              max: 1000
+              step: 50
+              unit_of_measurement: W
+              mode: slider
+
+        schritt_klein:
+          name: "Schrittgröße klein (W)"
+          description: >
+            Maximale GS-Änderung pro Zyklus bei kleinem Fehler.
+            Klein = sanft, verhindert Schwingen. Empfehlung: 15–30 W.
+          default: 20
+          selector:
+            number:
+              min: 5
+              max: 100
+              step: 5
+              unit_of_measurement: W
+              mode: slider
+
+        schritt_mittel:
+          name: "Schrittgröße mittel (W)"
+          description: >
+            Maximale GS-Änderung pro Zyklus bei mittlerem Fehler.
+            Empfehlung: 80–150 W.
+          default: 100
+          selector:
+            number:
+              min: 20
+              max: 500
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+        schritt_gross:
+          name: "Schrittgröße groß (W)"
+          description: >
+            Maximale GS-Änderung pro Zyklus bei großem Fehler.
+            Schnelle Reaktion auf größere Lastsprünge. Empfehlung: 300–500 W.
+          default: 400
+          selector:
+            number:
+              min: 100
+              max: 2400
+              step: 50
+              unit_of_measurement: W
+              mode: slider
+
+        einschwingzeit:
+          name: "Einschwingzeit (s)"
+          description: >
+            Mindestwartezeit nach einem Schreibvorgang bevor neu geregelt wird.
+            Gibt dem Speicher Zeit zu reagieren und verhindert zu schnelle
+            Folgekorrekturen. Empfehlung: 5–10 s.
+          default: 7
+          selector:
+            number:
+              min: 2
+              max: 30
+              step: 1
+              unit_of_measurement: s
               mode: slider
 
 # =============================================================================
@@ -194,23 +275,45 @@ trigger:
     seconds: "/10"
 
 variables:
-  # Blueprint-Inputs per !input in Variablen holen – nur so kennt HA sie zur Laufzeit
-  netz_sensor_id:     !input netz_sensor
-  speicher_gs_id:     !input speicher_gs
-  speicher_soc_id:    !input speicher_soc
-  schwelle_ein_val:   !input schwelle_ein
-  schwelle_aus_val:   !input schwelle_aus
-  ziel_val:           !input ziel_einspeisung
-  max_laden_val:      !input max_ladeleistung
-  drosselung_pct_val: !input drosselung_pct
-  dead_band_val:      !input dead_band
-  # Berechnete Werte
-  netz:            "{{ states(netz_sensor_id)  | float(0) }}"
-  soc:             "{{ states(speicher_soc_id) | float(0) }}"
-  gs_aktuell:      "{{ states(speicher_gs_id)  | float(0) }}"
-  drosselung:      "{{ drosselung_pct_val / 100 }}"
-  laden_aktiv:     "{{ gs_aktuell < 0 }}"
-  schwelle:        "{{ schwelle_aus_val if laden_aktiv else schwelle_ein_val }}"
+  # ── Blueprint-Inputs per !input auflösen ────────────────────────────────────
+  netz_sensor_id:      !input netz_sensor
+  speicher_gs_id:      !input speicher_gs
+  speicher_soc_id:     !input speicher_soc
+  schwelle_ein_val:    !input schwelle_ein
+  schwelle_aus_val:    !input schwelle_aus
+  ziel_val:            !input ziel_einspeisung
+  max_laden_val:       !input max_ladeleistung
+  drosselung_pct_val:  !input drosselung_pct
+  fehler_klein_val:    !input fehler_klein
+  fehler_gross_val:    !input fehler_gross
+  schritt_klein_val:   !input schritt_klein
+  schritt_mittel_val:  !input schritt_mittel
+  schritt_gross_val:   !input schritt_gross
+  einschwingzeit_val:  !input einschwingzeit
+
+  # ── Messwerte ────────────────────────────────────────────────────────────────
+  netz:        "{{ states(netz_sensor_id)  | float(0) }}"
+  soc:         "{{ states(speicher_soc_id) | float(0) }}"
+  gs_aktuell:  "{{ states(speicher_gs_id)  | float(0) }}"
+  drosselung:  "{{ drosselung_pct_val / 100 }}"
+  laden_aktiv: "{{ gs_aktuell < 0 }}"
+  schwelle:    "{{ schwelle_aus_val if laden_aktiv else schwelle_ein_val }}"
+
+  # ── Einschwingzeit-Prüfung ───────────────────────────────────────────────────
+  # Sekunden seit dem letzten GS-Schreibvorgang (last_changed des GS-Sensors)
+  sekunden_seit_gs_aenderung: >
+    {{ (as_timestamp(now()) - as_timestamp(states[speicher_gs_id].last_changed, 0)) | round(1) }}
+  # Sekunden seit dem letzten Netzsensor-Update
+  sekunden_seit_netz_update: >
+    {{ (as_timestamp(now()) - as_timestamp(states[netz_sensor_id].last_updated, 0)) | round(1) }}
+  # Freigabe: nur wenn GS lange genug unverändert UND neuer Messwert vorliegt
+  # (neuer Messwert = Netzsensor wurde nach letzter GS-Änderung aktualisiert)
+  regelung_freigegeben: >
+    {{ sekunden_seit_gs_aenderung >= einschwingzeit_val
+       and as_timestamp(states[netz_sensor_id].last_updated, 0)
+           > as_timestamp(states[speicher_gs_id].last_changed, 0) }}
+
+  # ── Sollwerte (Vollkorrektur) ────────────────────────────────────────────────
   soll_laden: >
     {% if netz > schwelle %}
       {{ [((netz * drosselung) | round(0) | int), max_laden_val] | min }}
@@ -218,7 +321,41 @@ variables:
       0
     {% endif %}
   soll_einspeisen: >
-    {{ ([0, (ziel_val - netz + (gs_aktuell | float(0))) ] | max) | round(0) | int }}
+    {{ ([0, (ziel_val - netz + gs_aktuell)] | max) | round(0) | int }}
+
+  # ── Fehler und gedämpfte Schrittgröße ────────────────────────────────────────
+  # Fehler = Differenz zwischen Vollkorrektur-Sollwert und aktuellem GS
+  # Vorzeichen: positiv = GS muss erhöht werden, negativ = GS muss gesenkt werden
+  gs_fehler: >
+    {% if soll_laden > 0 %}
+      {{ (soll_laden * -1) - gs_aktuell }}
+    {% elif soll_einspeisen > 0 %}
+      {{ soll_einspeisen - gs_aktuell }}
+    {% else %}
+      {{ 0 - gs_aktuell }}
+    {% endif %}
+  fehler_betrag: "{{ gs_fehler | abs | round(0) | int }}"
+
+  # Schrittgröße je nach Fehlerbetrag (klein / mittel / groß)
+  max_schritt: >
+    {% if fehler_betrag >= fehler_gross_val %}
+      {{ schritt_gross_val }}
+    {% elif fehler_betrag >= fehler_klein_val %}
+      {{ schritt_mittel_val }}
+    {% else %}
+      {{ schritt_klein_val }}
+    {% endif %}
+
+  # Begrenzter Schritt: Vorzeichen des Fehlers × min(|Fehler|, max_schritt)
+  begrenzter_schritt: >
+    {% if gs_fehler > 0 %}
+      {{ [gs_fehler, max_schritt] | min | round(0) | int }}
+    {% else %}
+      {{ ([gs_fehler, max_schritt * -1] | max) | round(0) | int }}
+    {% endif %}
+
+  # Nächster GS-Wert = aktueller GS + begrenzter Schritt
+  naechster_gs: "{{ (gs_aktuell + begrenzter_schritt) | round(0) | int }}"
 
 condition:
   - condition: template
@@ -228,7 +365,9 @@ condition:
 action:
   - choose:
 
-      # ── FALL 1: Ladevorgang STOPPEN ──────────────────────────────────────────
+      # ── FALL 1: Ladevorgang sofort STOPPEN (keine Einschwingzeit) ─────────────
+      # Wenn Einspeisung unter Ausschaltschwelle → GS sofort auf 0
+      # (Sicherheitsfall – keine Verzögerung durch Einschwingzeit)
       - conditions:
           - condition: template
             value_template: "{{ netz < schwelle_aus_val and laden_aktiv }}"
@@ -245,46 +384,31 @@ action:
                 Laden gestoppt – Einspeisung {{ netz | round(0) }} W
                 unter Ausschaltschwelle {{ schwelle_aus_val }} W (SOC {{ soc }}%)
 
-      # ── FALL 2: Laden STARTEN oder ANPASSEN ──────────────────────────────────
+      # ── FALL 2–3: Schrittregelung (mit Einschwingzeit) ───────────────────────
+      # Nur wenn Einschwingzeit abgelaufen UND neuer Messwert vorliegt
+      # UND Fehler groß genug (mind. schritt_klein_val)
       - conditions:
           - condition: template
             value_template: >
-              {{ soll_laden > 0
-                 and ((soll_laden - (gs_aktuell | abs)) | abs) > dead_band_val }}
+              {{ regelung_freigegeben
+                 and fehler_betrag >= fehler_klein_val }}
         sequence:
           - action: number.set_value
             target:
               entity_id: !input speicher_gs
             data:
-              value: "{{ (soll_laden * -1) | int }}"
+              value: "{{ naechster_gs }}"
           - action: logbook.log
             data:
               name: "PV Überschussladen"
               message: >
-                Laden → {{ soll_laden }} W
-                (Einspeisung {{ netz | round(0) }} W, SOC {{ soc }}%)
-
-      # ── FALL 3: Einspeisen STARTEN oder ANPASSEN ─────────────────────────────
-      - conditions:
-          - condition: template
-            value_template: >
-              {{ soll_einspeisen > 0
-                 and ((soll_einspeisen - gs_aktuell) | abs) > dead_band_val }}
-        sequence:
-          - action: number.set_value
-            target:
-              entity_id: !input speicher_gs
-            data:
-              value: "{{ soll_einspeisen | int }}"
-          - action: logbook.log
-            data:
-              name: "PV Überschussladen"
-              message: >
-                Einspeisen → {{ soll_einspeisen }} W
-                (Netz {{ netz | round(0) }} W, Ziel {{ ziel_val }} W,
-                SOC {{ soc }}%)
+                GS {{ gs_aktuell | round(0) }} → {{ naechster_gs }} W
+                (Fehler {{ gs_fehler | round(0) }} W, Schritt {{ begrenzter_schritt }} W,
+                Netz {{ netz | round(0) }} W, SOC {{ soc }}%,
+                seit GS-Änderung {{ sekunden_seit_gs_aenderung }} s)
 
       # ── FALL 4: Kein Handlungsbedarf ─────────────────────────────────────────
+      # Fehler < schritt_klein_val, oder Einschwingzeit noch nicht abgelaufen
 
 mode: single
 max_exceeded: silent

@@ -320,8 +320,9 @@ variables:
     {% else %}
       0
     {% endif %}
+  # Wie viel Watt fehlen noch zum Zielwert (positiv = Speicher muss mehr einspeisen)
   soll_einspeisen: >
-    {{ ([0, (ziel_val - netz + gs_aktuell)] | max) | round(0) | int }}
+    {{ ([0, (ziel_val - netz)] | max) | round(0) | int }}
 
   # ── Fehler und gedämpfte Schrittgröße ────────────────────────────────────────
   # Fehler = Differenz zwischen Vollkorrektur-Sollwert und aktuellem GS

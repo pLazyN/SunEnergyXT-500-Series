@@ -70,7 +70,6 @@ blueprint:
           selector:
             entity:
               domain: number
-              device_class: power
 
         speicher_soc:
           name: "SC – Ladestand SOC (sensor)"
@@ -195,25 +194,36 @@ trigger:
     seconds: "/10"
 
 variables:
-  netz:            "{{ states(netz_sensor)  | float(0) }}"
-  soc:             "{{ states(speicher_soc) | float(0) }}"
-  gs_aktuell:      "{{ states(speicher_gs)  | float(0) }}"
-  drosselung:      "{{ drosselung_pct / 100 }}"
+  # Blueprint-Inputs per !input in Variablen holen – nur so kennt HA sie zur Laufzeit
+  netz_sensor_id:     !input netz_sensor
+  speicher_gs_id:     !input speicher_gs
+  speicher_soc_id:    !input speicher_soc
+  schwelle_ein_val:   !input schwelle_ein
+  schwelle_aus_val:   !input schwelle_aus
+  ziel_val:           !input ziel_einspeisung
+  max_laden_val:      !input max_ladeleistung
+  drosselung_pct_val: !input drosselung_pct
+  dead_band_val:      !input dead_band
+  # Berechnete Werte
+  netz:            "{{ states(netz_sensor_id)  | float(0) }}"
+  soc:             "{{ states(speicher_soc_id) | float(0) }}"
+  gs_aktuell:      "{{ states(speicher_gs_id)  | float(0) }}"
+  drosselung:      "{{ drosselung_pct_val / 100 }}"
   laden_aktiv:     "{{ gs_aktuell < 0 }}"
-  schwelle:        "{{ schwelle_aus if laden_aktiv else schwelle_ein }}"
+  schwelle:        "{{ schwelle_aus_val if laden_aktiv else schwelle_ein_val }}"
   soll_laden: >
     {% if netz > schwelle %}
-      {{ [((netz * drosselung) | round(0) | int), max_ladeleistung] | min }}
+      {{ [((netz * drosselung) | round(0) | int), max_laden_val] | min }}
     {% else %}
       0
     {% endif %}
   soll_einspeisen: >
-    {{ ([0, (ziel_einspeisung - netz + (gs_aktuell | float(0))) ] | max) | round(0) | int }}
+    {{ ([0, (ziel_val - netz + (gs_aktuell | float(0))) ] | max) | round(0) | int }}
 
 condition:
   - condition: template
     value_template: >
-      {{ states(netz_sensor) not in ['unavailable', 'unknown', 'none'] }}
+      {{ states(netz_sensor_id) not in ['unavailable', 'unknown', 'none'] }}
 
 action:
   - choose:
@@ -221,7 +231,7 @@ action:
       # ── FALL 1: Ladevorgang STOPPEN ──────────────────────────────────────────
       - conditions:
           - condition: template
-            value_template: "{{ netz < schwelle_aus and laden_aktiv }}"
+            value_template: "{{ netz < schwelle_aus_val and laden_aktiv }}"
         sequence:
           - action: number.set_value
             target:
@@ -233,14 +243,14 @@ action:
               name: "PV Überschussladen"
               message: >
                 Laden gestoppt – Einspeisung {{ netz | round(0) }} W
-                unter Ausschaltschwelle {{ schwelle_aus }} W (SOC {{ soc }}%)
+                unter Ausschaltschwelle {{ schwelle_aus_val }} W (SOC {{ soc }}%)
 
       # ── FALL 2: Laden STARTEN oder ANPASSEN ──────────────────────────────────
       - conditions:
           - condition: template
             value_template: >
               {{ soll_laden > 0
-                 and ((soll_laden - (gs_aktuell | abs)) | abs) > dead_band }}
+                 and ((soll_laden - (gs_aktuell | abs)) | abs) > dead_band_val }}
         sequence:
           - action: number.set_value
             target:
@@ -259,7 +269,7 @@ action:
           - condition: template
             value_template: >
               {{ soll_einspeisen > 0
-                 and ((soll_einspeisen - gs_aktuell) | abs) > dead_band }}
+                 and ((soll_einspeisen - gs_aktuell) | abs) > dead_band_val }}
         sequence:
           - action: number.set_value
             target:
@@ -271,7 +281,7 @@ action:
               name: "PV Überschussladen"
               message: >
                 Einspeisen → {{ soll_einspeisen }} W
-                (Netz {{ netz | round(0) }} W, Ziel {{ ziel_einspeisung }} W,
+                (Netz {{ netz | round(0) }} W, Ziel {{ ziel_val }} W,
                 SOC {{ soc }}%)
 
       # ── FALL 4: Kein Handlungsbedarf ─────────────────────────────────────────

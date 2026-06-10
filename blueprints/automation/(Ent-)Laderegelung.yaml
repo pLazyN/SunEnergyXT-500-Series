@@ -1,0 +1,332 @@
+# =============================================================================
+# Blueprint: PV-Regelung – SunEnergyXT 500
+# =============================================================================
+#
+# Vorzeichen-Konventionen:
+#   Zähler (netz):   positiv = Bezug,    negativ = Einspeisung
+#   PB (Ist-Wert):   positiv = Entladen, negativ = Laden
+#   GS (Sollwert):   positiv = Entladen, negativ = Laden
+#   Ziel-Einspeisung: negativ eingeben (z.B. -50 für 50W Einspeisung)
+#
+# Regelformel:
+#   realDemand = netz + pb   (echter Hausverbrauch minus PV, unabhängig vom Speicher)
+#   ziel_gs    = realDemand - ziel_einspeisung
+#   Eingriff nur wenn |ziel_gs - gs_aktuell| > totband
+#
+# Beispiel: PV=2000W, Last=150W, Speicher lädt 1800W
+#   netz=-50W, pb=-1800W → realDemand=-1850W
+#   ziel_gs = -1850 - (-50) = -1800W → entspricht gs_aktuell → kein Eingriff ✓
+#
+# INSTALLATION:
+#   config/blueprints/automation/pv_regelung_sunenergy.yaml
+# =============================================================================
+
+blueprint:
+  name: "PV-Regelung – SunEnergyXT 500"
+  description: >
+    Hält den Netzwert konstant bei einem einstellbaren Zielwert.
+    Lädt den Speicher mit PV-Überschuss, entlädt bei Bedarf.
+    SOC-Grenzen schützen die Batterie.
+
+    **Vorzeichen Zähler:** positiv = Bezug, negativ = Einspeisung.
+
+    **Ziel-Einspeisung:** negativ eingeben, z.B. -50 für 50 W Einspeisung.
+  domain: automation
+  author: "pLazyN"
+  homeassistant:
+    min_version: "2024.6.0"
+
+  input:
+
+    section_sensoren:
+      name: "📡 Sensoren"
+      icon: mdi:meter-electric
+      collapsed: false
+      input:
+
+        netz_sensor:
+          name: "Zähler – Netzleistung (W)"
+          description: >
+            Aktueller Netzaustausch. **Positiv = Bezug, negativ = Einspeisung.**
+          selector:
+            entity:
+              domain: sensor
+              device_class: power
+
+        speicher_gp:
+          name: "GP – Systemleistung Ist-Wert (W)"
+          description: >
+            Aktuelle Systemleistung am Netzanschluss (Ist-Wert). Positiv = Entladen, negativ = Laden.
+            API-Feld: GP. (z.B. sensor.SunEnergyXT500_gp)
+          selector:
+            entity:
+              domain: sensor
+              device_class: power
+
+        speicher_soc:
+          name: "SC – Ladestand SOC (%)"
+          description: >
+            Aktueller Speicherladestand in Prozent.
+            API-Feld: SC. (z.B. sensor.SunEnergyXT500_sc)
+          selector:
+            entity:
+              domain: sensor
+              device_class: battery
+
+        speicher_gs:
+          name: "GS – Sollwert (number)"
+          description: >
+            Steuert Laden/Entladen. Positiv = Entladen, negativ = Laden.
+            API-Feld: GS. (z.B. number.SunEnergyXT500_gs)
+          selector:
+            entity:
+              domain: number
+
+    section_ziel:
+      name: "🎯 Regelziel"
+      icon: mdi:target
+      collapsed: false
+      input:
+
+        ziel_einspeisung:
+          name: "Ziel-Netzwert (W)"
+          description: >
+            Gewünschter Zählerwert. Negativ = Einspeisung ins Netz.
+            Empfehlung: -30 bis -80 W (leichte Dauereinspeisung).
+            0 = Nulleinspeisung. Positiv = bewusster Netzbezug erlaubt.
+          default: -50
+          selector:
+            number:
+              min: -500
+              max: 200
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+        max_ladeleistung:
+          name: "Maximale Ladeleistung (W)"
+          description: >
+            Obergrenze beim Laden. SunEnergyXT 500 und Pro: bis 2400 W.
+          default: 2400
+          selector:
+            number:
+              min: 100
+              max: 2400
+              step: 100
+              unit_of_measurement: W
+              mode: slider
+
+        max_entladeleistung:
+          name: "Maximale Entladeleistung (W)"
+          description: >
+            Obergrenze beim Entladen. SunEnergyXT 500: 800 W, Pro: 2400 W.
+          default: 800
+          selector:
+            number:
+              min: 100
+              max: 2400
+              step: 100
+              unit_of_measurement: W
+              mode: slider
+
+    section_soc:
+      name: "🔋 SOC-Grenzen"
+      icon: mdi:battery-heart
+      collapsed: false
+      input:
+
+        soc_min:
+          name: "SOC-Minimum (%)"
+          description: "Unter diesem Ladestand wird nicht mehr entladen."
+          default: 20
+          selector:
+            number:
+              min: 5
+              max: 50
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+        soc_max:
+          name: "SOC-Maximum (%)"
+          description: >
+            Über diesem Ladestand wird nicht mehr geladen.
+            PV-Überschuss wird dann direkt ins Netz eingespeist.
+          default: 80
+          selector:
+            number:
+              min: 50
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+    section_daempfung:
+      name: "🎚️ Dämpfung"
+      icon: mdi:sine-wave
+      collapsed: true
+      input:
+
+        totband:
+          name: "Totband (W)"
+          description: >
+            Minimale Abweichung zwischen Ziel-GS und aktuellem GS,
+            ab der überhaupt eingegriffen wird.
+            Filtert Sensorrauschen heraus – sollte größer sein als das
+            typische Rauschen deines Zählers.
+            Empfehlung: 50–100 W.
+          default: 75
+          selector:
+            number:
+              min: 10
+              max: 300
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+        rampe:
+          name: "Rampenlimit (W/Zyklus)"
+          description: >
+            Maximale GS-Änderung pro Regelzyklus.
+            Verhindert Überschwingen bei träger Speicherreaktion.
+            Empfehlung: 100–200 W.
+          default: 150
+          selector:
+            number:
+              min: 20
+              max: 2400
+              step: 10
+              unit_of_measurement: W
+              mode: slider
+
+        einschwingzeit:
+          name: "Einschwingzeit (s)"
+          description: >
+            Mindestzeit nach einem Schreibvorgang bevor neu geregelt wird.
+            Sollte größer sein als die Reaktionszeit des Speichers.
+            Empfehlung: 8–15 s.
+          default: 10
+          selector:
+            number:
+              min: 3
+              max: 60
+              step: 1
+              unit_of_measurement: s
+              mode: slider
+
+# =============================================================================
+# AUTOMATION
+# =============================================================================
+trigger:
+  - platform: state
+    entity_id: !input netz_sensor
+  - platform: time_pattern
+    seconds: "/10"
+
+variables:
+  # ── Inputs auflösen ──────────────────────────────────────────────────────────
+  netz_sensor_id:     !input netz_sensor
+  speicher_gs_id:     !input speicher_gs
+  speicher_gp_id:     !input speicher_gp
+  speicher_soc_id:    !input speicher_soc
+  ziel_val:           !input ziel_einspeisung
+  max_laden_val:      !input max_ladeleistung
+  max_entladen_val:   !input max_entladeleistung
+  soc_min_val:        !input soc_min
+  soc_max_val:        !input soc_max
+  totband_val:        !input totband
+  rampe_val:          !input rampe
+  einschwingzeit_val: !input einschwingzeit
+
+  # ── Messwerte ────────────────────────────────────────────────────────────────
+  netz:       "{{ states(netz_sensor_id) | float(0) }}"
+  pb:         "{{ states(speicher_gp_id) | float(0) }}"
+  soc:        "{{ states(speicher_soc_id) | float(0) }}"
+  gs_aktuell: "{{ states(speicher_gs_id) | float(0) }}"
+
+  # ── Kernformel ───────────────────────────────────────────────────────────────
+  # realDemand = echter Hausverbrauch minus PV, unabhängig vom Speicherbetrieb
+  # netz: was am Zähler steht (inkl. Speicherwirkung)
+  # pb:   was der Speicher gerade tut (addieren → herausrechnen)
+  # Beispiel: netz=-50W, pb=-1800W → realDemand=-1850W (2000W PV, 150W Last)
+  real_demand: "{{ (netz + pb) | round(0) | int }}"
+
+  # Ziel-GS: wie soll der Speicher eingestellt sein damit netz = ziel_val
+  # ziel_gs = realDemand - ziel_val
+  # Beispiel: realDemand=-1850W, ziel=-50W → ziel_gs=-1800W (Laden mit 1800W) ✓
+  ziel_gs_roh: "{{ (real_demand - ziel_val) | round(0) | int }}"
+
+  # SOC-Grenzen: Laden nur wenn SOC < max, Entladen nur wenn SOC > min
+  ziel_gs_soc: >
+    {% if ziel_gs_roh < 0 and soc >= soc_max_val %}
+      0
+    {% elif ziel_gs_roh > 0 and soc <= soc_min_val %}
+      0
+    {% else %}
+      {{ ziel_gs_roh }}
+    {% endif %}
+
+  # Hardware-Grenzen anwenden
+  ziel_gs: >
+    {% if ziel_gs_soc < 0 %}
+      {{ [ziel_gs_soc, max_laden_val * -1] | max | int }}
+    {% elif ziel_gs_soc > 0 %}
+      {{ [ziel_gs_soc, max_entladen_val] | min | int }}
+    {% else %}
+      0
+    {% endif %}
+
+  # ── Dämpfung ─────────────────────────────────────────────────────────────────
+  abweichung: "{{ (ziel_gs - gs_aktuell) | round(0) | int }}"
+  abweichung_betrag: "{{ abweichung | abs }}"
+
+  # Rampenlimit: maximale Änderung pro Zyklus
+  delta: >
+    {% if abweichung > 0 %}
+      {{ [abweichung, rampe_val] | min | int }}
+    {% else %}
+      {{ ([abweichung, rampe_val * -1] | max) | int }}
+    {% endif %}
+
+  naechster_gs: "{{ (gs_aktuell + delta) | round(0) | int }}"
+
+  # Einschwingzeit: Sekunden seit letzter GS-Änderung
+  sekunden_seit_aenderung: >
+    {{ (as_timestamp(now()) -
+        as_timestamp(states[speicher_gs_id].last_changed, 0)) | round(1) }}
+  eingeschwungen: "{{ sekunden_seit_aenderung >= einschwingzeit_val }}"
+
+condition:
+  - condition: template
+    value_template: >
+      {{ states(netz_sensor_id) not in ['unavailable', 'unknown', 'none']
+         and states(speicher_gp_id) not in ['unavailable', 'unknown', 'none']
+         and states(speicher_soc_id) not in ['unavailable', 'unknown', 'none'] }}
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ abweichung_betrag > totband_val and eingeschwungen }}
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: !input speicher_gs
+            data:
+              value: "{{ naechster_gs }}"
+          - action: logbook.log
+            data:
+              name: "PV Regelung"
+              message: >
+                GS {{ gs_aktuell | round(0) }} → {{ naechster_gs }} W
+                | Netz {{ netz | round(0) }} W
+                | GP {{ pb | round(0) }} W
+                | RealDemand {{ real_demand }} W
+                | Ziel-GS {{ ziel_gs }} W
+                | SOC {{ soc }} %
+                | Δ {{ delta }} W
+                | seit {{ sekunden_seit_aenderung }} s
+
+mode: single
+max_exceeded: silent

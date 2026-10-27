@@ -821,7 +821,7 @@ blueprint:
           selector:
             entity:
               domain: sensor
-              unit_of_measurement: kWh
+              device_class: energy
 
         pv_forecast_tomorrow_sensor:
           name: PV-Prognose Morgen (kWh)
@@ -832,7 +832,7 @@ blueprint:
           selector:
             entity:
               domain: sensor
-              unit_of_measurement: kWh
+              device_class: energy
 
         battery_capacity_kwh:
           name: Nutzbare Speicherkapazität (kWh)
